@@ -35,9 +35,9 @@ public class HotelViewLandingSaveEvent extends MessageHandler {
             "safetyquizpromo",
             "habbomoderationpromo",
             // AIR 13 LandingViewWidgetType entries the client renders as official widgets.
+            // (roomhoppernetwork is already listed above — Set.of throws on duplicates.)
             "promoarticle",
             "avatarimage",
-            "roomhoppernetwork",
             "generic",
             "communitygoalvsmode",
             "communitygoalvsmodevote",
