@@ -1,0 +1,44 @@
+# Standalone test stack (EasyPanel builds the app service from the Dockerfile and
+# creates the MariaDB service in the panel — this file is for local testing).
+#
+#   cp .env.example .env   # fill in the values
+#   docker compose up -d --build
+
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set in .env}
+      MARIADB_DATABASE: ${DB_NAME:-polaris}
+      MARIADB_USER: ${DB_USER:-polaris}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set in .env}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  hotel:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      APP_SCHEME: ${APP_SCHEME:-http}
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-polaris}
+      DB_USER: ${DB_USER:-polaris}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JAVA_XMX: ${JAVA_XMX:-3072m}
+    volumes:
+      - hotel-data:/data
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:
+  hotel-data:
