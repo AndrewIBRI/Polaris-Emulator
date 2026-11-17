@@ -30,6 +30,10 @@ FROM eclipse-temurin:25-jdk-noble AS jar-build
 WORKDIR /build/Emulator
 COPY Emulator/ /build/Emulator/
 
+# unzip is required by the maven wrapper: without it the wrapper rewrites the
+# distributionUrl to .tar.gz and the distributionSha256Sum validation fails
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
+
 ENV MAVEN_OPTS="-Xmx1536m"
 RUN ./mvnw -B -q clean package -DskipTests -Dspotless.check.skip=true
 
