@@ -32,5 +32,9 @@ Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyP
 - **Build do cliente e do jar dentro do Docker** (multi-stage) — sem artefatos binários no repo
 
 ## Estado do deploy
-- Push: em progresso (chunks)
-- EasyPanel: pendente — criar serviço MariaDB + serviço app (repo AndrewIBRI/Polaris-Emulator, Dockerfile na raiz)
+- **ONLINE**: https://server-polaris-hotel.00behz.easypanel.host (HTTP 200, WS 101, registro OK)
+- EasyPanel projeto `server`: app `polaris-hotel` (repo AndrewIBRI/Polaris-Emulator, main, autoDeploy) + MariaDB `polaris-db` (db/user: polaris)
+- Volume `polaris-data` → `/data` (config.ini, imager output, backups)
+- Fixos durante o deploy: (1) `unzip` no stage jar-build — sem ele o mvnw reescreve a URL para .tar.gz e o checksum do .zip falha; (2) badgeparts em `/var/www/gamedata/badgeparts` (path seedado pela migration base, que sobrepõe config.ini); (3) **entrypoint sincroniza `emulator_settings` ANTES do boot** (`docker/entrypoint.sh`) — o banco sobrepõe config.ini (`loadFromDatabase` roda depois do load do ini) e um boot anterior pode reverter valores; o sync força 8 chaves geridas pelo deploy (camera.render.mode=upload, furni.directions.*, imager.*, items.furnidata.path) em todo boot, tornando o deploy determinístico
+- Boot saudável: "Furni directions: read from the furniture bundles", "Badge Imager -> Loaded!", "Camera: mode upload", "Polaris has successfully loaded."
+- Para editar settings de deploy: mudar o bloco SYNC_SQL do entrypoint (fonte da verdade) + config.ini correspondente
