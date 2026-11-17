@@ -49,7 +49,10 @@ COPY --from=client-build /build/Octane/dist/ /opt/dist/
 COPY --from=jar-build /build/Emulator/target/*-jar-with-dependencies.jar /opt/polaris.jar
 
 COPY assets/ /opt/assets/
+# badgeparts on both paths: the DB settings table seeds imager.location.badgeparts
+# as /var/www/gamedata/badgeparts (migration base_database), which overrides config.ini
 COPY Assets/badgeparts/ /opt/badgeparts/
+COPY Assets/badgeparts/ /var/www/gamedata/badgeparts/
 COPY docker/templates/ /opt/templates/
 
 COPY docker/nginx.conf /etc/nginx/nginx.conf

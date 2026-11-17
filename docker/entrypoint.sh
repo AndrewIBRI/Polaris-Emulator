@@ -62,10 +62,16 @@ login.remember.cookie.samesite=Strict
 login.remember.cookie.secure=true
 
 imager.internal.enabled=true
-imager.location.badgeparts=/opt/badgeparts
+imager.location.badgeparts=/var/www/gamedata/badgeparts
 imager.location.output.badges=/data/imager/badges
 imager.location.output.camera=/data/imager/camera
 imager.location.output.thumbnail=/data/imager/camera/thumbnails
+
+# Octane renders photos client-side and uploads the PNG; server-side rendering
+# needs a full nitro render pipeline, so keep the client upload mode.
+camera.render.mode=upload
+# Furni rotations read from the furniture nitro bundles in the image
+furni.directions.assets_dir=/opt/assets/bundled/furniture
 
 system.log.debug=false
 system.log.packets=false
