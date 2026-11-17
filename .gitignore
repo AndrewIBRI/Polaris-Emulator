@@ -16,3 +16,7 @@ config.ini
 
 /Emulator/plugins
 /Emulator/.idea
+node_modules/
+.yarn/cache/
+.pnp.cjs
+dist/

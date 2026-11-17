@@ -1,0 +1,12 @@
+# Keep the build context small — the image build copies only what it needs.
+.git
+**/.git
+Emulator/target
+Emulator/logging
+Emulator/plugins
+Octane/node_modules
+Octane-Renderer/node_modules
+Octane/dist
+Octane/.yarn
+**/.yarn/cache
+DEPLOY-NOTES.md

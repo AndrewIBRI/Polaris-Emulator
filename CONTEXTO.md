@@ -1,0 +1,36 @@
+# CONTEXTO — Polaris Hotel
+
+## Objetivo
+Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyPanel da VPS (72.61.45.245), tudo num único repo: imagem Docker all-in-one (emulador Java + cliente estático + nginx + assets vendored) + MariaDB como serviço separado do EasyPanel.
+
+## Feito
+- **Cliente**: Octane + Octane-Renderer vendored como arquivos normais (gitlinks/submódulos removidos — os `.git` internos foram apagados) — o Dockerfile faz `yarn install --immutable` + `yarn build` no build da imagem
+- **Assets vendored** em `assets/`: `bundled/` (75.722 furni .nitro, 8.852 figure, 203 effect, 74 pet, 9 generic), `c_images/` (43.754 arquivos: badges, catálogo, quests, habbopages), `hof_furni/` (15.397 ícones + 806 mp3 trax), `gamedata/` (FurnitureData, FigureData, EffectMap, ExternalTexts...), `images/logos/sounds`
+- **fx_icons**: 203 placeholders PNG gerados (o pack não tinha os ícones de efectos)
+- **Docker**: Dockerfile all-in-one (3 stages: node:22 build client → temurin:25 build jar → runtime nginx+jre), `docker/nginx.conf`, `docker/entrypoint.sh`, `docker/templates/` (renderer-config/ui-config com placeholder {{DOMAIN}})
+- **Docs**: `EASYPANEL.md` (guia de deploy), `.env.example`, `.dockerignore`
+
+## Não fazer
+- Não commitar `node_modules/`, `dist/`, `.yarn/cache/` — o build Docker gera tudo
+- Não restaurar os `.git` internos de `Octane/`/`Octane-Renderer/` (virariam gitlinks de novo e o `COPY` no build da VPS copiaria pastas vazias)
+- Não fazer push de pack > 2GB (limite do GitHub por push) — dividir em chunks
+- Não mexer no pack de assets sem conferir com o FurnitureData (75.722 furni = set completo)
+
+## Mapa
+- `Emulator/` — fonte Java do Polaris (build: `./mvnw clean package`)
+- `Octane/` + `Octane-Renderer/` — cliente web (o renderer resolve `../Octane-Renderer`)
+- `assets/` — pack de jogo vendored (bundled, c_images, gamedata, hof_furni, images, logos, sounds)
+- `docker/` — nginx.conf, entrypoint.sh, templates/
+- `Assets/badgeparts/` — partes de badge para o imager (verificar origem)
+- `Dockerfile` — build all-in-one; `EASYPANEL.md` — guia de deploy
+
+## Decisões
+- **Assets vendored no repo** (~3GB) em vez de download no boot — self-contained, sem dependência de repos externos que podem sumir
+- **Push em chunks < 2GB**: furniture em 2 partes, c_images, hof_furni, gamedata, client, docs
+- **fx_icons placeholders**: cosmético do editor de avatar, sem fonte pública disponível
+- **MariaDB externo** (serviço EasyPanel `polaris-db`), não embutido no container
+- **Build do cliente e do jar dentro do Docker** (multi-stage) — sem artefatos binários no repo
+
+## Estado do deploy
+- Push: em progresso (chunks)
+- EasyPanel: pendente — criar serviço MariaDB + serviço app (repo AndrewIBRI/Polaris-Emulator, Dockerfile na raiz)
