@@ -77,6 +77,44 @@ system.log.debug=false
 system.log.packets=false
 EOF
 
+# ---------------------------------------------- emulator_settings sync (pre-boot)
+# The emulator's emulator_settings table OVERRIDES config.ini (loadFromDatabase
+# runs after the ini load). A previous boot can write defaults back over the
+# deployment values, so force the managed settings on every boot, before the
+# emulator reads the table.
+if command -v mariadb >/dev/null 2>&1; then
+  SYNC_SQL="INSERT INTO emulator_settings (\`key\`, \`value\`) VALUES
+    ('camera.render.mode','upload'),
+    ('furni.directions.enabled','1'),
+    ('furni.directions.assets_dir','/opt/assets/bundled/furniture'),
+    ('imager.location.badgeparts','/var/www/gamedata/badgeparts'),
+    ('imager.location.output.badges','/data/imager/badges'),
+    ('imager.location.output.camera','/data/imager/camera'),
+    ('imager.location.output.thumbnail','/data/imager/camera/thumbnails'),
+    ('items.furnidata.path','/opt/assets/gamedata/FurnitureData.json')
+  ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`);"
+  _synced=0
+  _err=""
+  for _ in $(seq 1 15); do
+    _err="$(mariadb -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" -e "${SYNC_SQL}" 2>&1 || true)"
+    if [ -z "${_err}" ]; then
+      echo "[entrypoint] emulator_settings synced (8 keys)"
+      _synced=1
+      break
+    fi
+    if echo "${_err}" | grep -q "doesn't exist"; then
+      echo "[entrypoint] emulator_settings table missing (first boot); migrations will create it"
+      break
+    fi
+    sleep 2
+  done
+  if [ "${_synced}" -eq 0 ] && [ -n "${_err}" ]; then
+    echo "[entrypoint] WARN: emulator_settings sync failed: ${_err}"
+  fi
+else
+  echo "[entrypoint] WARN: mariadb client not found; skipping emulator_settings sync"
+fi
+
 # ------------------------------------------------- Octane client configuration
 # The baked copies from dist/ stay in place (pets.json, asset-loader.js, ...);
 # the domain-dependent files are (re)generated on every boot.
