@@ -9,7 +9,7 @@
     "system.pong.manually": true,
     "system.pong.interval.ms": 20000,
     "// ---- Base URLs (used by the keys below) ----": "",
-    "asset.url": "https://{{DOMAIN}}/assets",
+    "asset.url": "https://{{DOMAIN}}/gameassets",
     "image.library.url": "${asset.url}/c_images/",
     "images.url": "${asset.url}/images",
     "gamedata.url": "${asset.url}/gamedata",
