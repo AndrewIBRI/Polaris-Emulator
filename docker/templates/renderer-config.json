@@ -21,7 +21,7 @@
         "${gamedata.url}/ExternalTexts.json",
         "${gamedata.url}/UITexts.json"
     ],
-    "external.texts.translation.url": "",
+    "external.texts.translation.url": "${gamedata.url}/text_translate/ExternalTexts_%locale%.json",
     "external.samples.url": "${hof.furni.url}/mp3/sound_machine_sample_%sample%.mp3",
     "furnidata.url": "${gamedata.url}/FurnitureData.json?t=%timestamp%",
     "furnidata.translation.url": "",

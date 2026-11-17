@@ -66,6 +66,7 @@ const normalizeLanguageCode = (value: string) =>
 // external.texts.translation.url is `.../UITexts_%locale%.json`.
 const TEXT_TRANSLATION_LOCALES: ITranslationTextLocale[] = [
     { code: 'en', name: 'English', file: 'en' },
+    { code: 'pt', name: 'Portuguese (BR)', file: 'br' },
     { code: 'it', name: 'Italian', file: 'it' },
     { code: 'nl', name: 'Dutch', file: 'nl' },
     { code: 'de', name: 'German', file: 'de' },

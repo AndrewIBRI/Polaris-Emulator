@@ -4,6 +4,7 @@ import { useFormStatus } from 'react-dom';
 import { FaDice } from 'react-icons/fa';
 import { ClearRememberLogin, GetConfigurationValue, GetOptionalConfigurationValue, GetRememberLogin, isRememberCookieMode, persistAccessTokenFromPayload, StoreRememberLoginFromPayload, localizeServerMessage } from '../../api';
 import flagEn from '../../assets/images/flag_icon/flag_icon_en.png';
+import flagBr from '../../assets/images/flag_icon/flag_icon_br.png';
 import flagEs from '../../assets/images/flag_icon/flag_icon_es.png';
 import flagFr from '../../assets/images/flag_icon/flag_icon_fr.png';
 import flagIt from '../../assets/images/flag_icon/flag_icon_it.png';
@@ -81,6 +82,7 @@ const getDefaultLoginImages = (): Record<string, string> => {
 const LOGIN_LOCALES: LoginLocale[] = [
     { code: 'it', file: 'it', label: 'Italiano', flag: flagIt },
     { code: 'en', file: 'com', label: 'English', flag: flagEn },
+    { code: 'pt', file: 'br', label: 'Português (BR)', flag: flagBr },
     { code: 'es', file: 'es', label: 'Español', flag: flagEs },
     { code: 'fr', file: 'fr', label: 'Français', flag: flagFr },
     { code: 'nl', file: 'nl', label: 'Nederlands', flag: flagNl },
