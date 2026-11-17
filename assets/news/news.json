@@ -1,0 +1,12 @@
+{
+    "news": [
+        {
+            "id": 1,
+            "title": "Bem-vindo ao Hotel!",
+            "body": "O hotel está aberto! Decore seu quarto, faça novos amigos e participe dos eventos. Boa diversão!",
+            "image": "",
+            "linkText": "",
+            "linkUrl": ""
+        }
+    ]
+}
