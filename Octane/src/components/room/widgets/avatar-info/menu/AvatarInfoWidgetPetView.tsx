@@ -1,0 +1,165 @@
+import {
+    PetRespectComposer,
+    PetType,
+    RoomControllerLevel,
+    RoomObjectCategory,
+    RoomObjectType,
+    RoomObjectVariable,
+    RoomUnitGiveHandItemPetComposer
+} from '@octane/renderer';
+import { FC, useEffect, useMemo, useState } from 'react';
+import { AvatarInfoPet, GetConfigurationValue, GetOwnRoomObject, LocalizeText, localizeWithFallback, SendMessageComposer } from '../../../../../api';
+import { NativeTextTree } from '../../../../../common/native-text/NativeTextTree';
+import { useHasPermission, useRoom, useSessionInfo, useWiredTools } from '../../../../../hooks';
+import { ContextMenuHeaderView } from '../../context-menu/ContextMenuHeaderView';
+import { ContextMenuListItemView } from '../../context-menu/ContextMenuListItemView';
+import { ContextMenuView } from '../../context-menu/ContextMenuView';
+
+interface AvatarInfoWidgetPetViewProps {
+    avatarInfo: AvatarInfoPet;
+    onClose: () => void;
+}
+
+const MODE_NORMAL: number = 0;
+const MODE_SADDLED_UP: number = 1;
+const MODE_RIDING: number = 2;
+const MODE_MONSTER_PLANT: number = 3;
+
+export const AvatarInfoWidgetPetView: FC<AvatarInfoWidgetPetViewProps> = (props) => {
+    const { avatarInfo = null, onClose = null } = props;
+    const [mode, setMode] = useState(MODE_NORMAL);
+    const { roomSession = null } = useRoom();
+    const { openInspectionForUser, showInspectButton } = useWiredTools();
+    const { petRespectRemaining = 0, respectPet = null } = useSessionInfo();
+    const canManageAnyRoom = useHasPermission('acc_anyroomowner');
+
+    const canPickUp = useMemo(() => {
+        return roomSession.isRoomOwner || roomSession.controllerLevel >= RoomControllerLevel.GUEST || canManageAnyRoom;
+    }, [roomSession, canManageAnyRoom]);
+
+    // AIR PetMenuView / OwnPetMenuView: only handitem.give.pet.enabled, not the room's hand-item flag.
+    const canGiveHandItem = useMemo(() => {
+        if (!GetConfigurationValue('handitem.give.pet.enabled', true)) return false;
+
+        let flag = false;
+
+        const roomObject = GetOwnRoomObject();
+
+        if (roomObject) {
+            const carryId = roomObject.model.getValue<number>(RoomObjectVariable.FIGURE_CARRY_OBJECT);
+
+            if (carryId > 0 && carryId < 999999) flag = true;
+        }
+
+        return flag;
+    }, []);
+
+    const processAction = (name: string) => {
+        let hideMenu = true;
+
+        if (name) {
+            switch (name) {
+                case 'inspect':
+                    openInspectionForUser(avatarInfo.roomIndex);
+                    break;
+                case 'respect':
+                    respectPet(avatarInfo.id);
+
+                    if (petRespectRemaining - 1 >= 1) hideMenu = false;
+                    break;
+                case 'treat':
+                    SendMessageComposer(new PetRespectComposer(avatarInfo.id));
+                    break;
+                case 'pass_handitem':
+                    SendMessageComposer(new RoomUnitGiveHandItemPetComposer(avatarInfo.id));
+                    break;
+                case 'pick_up':
+                    roomSession.pickupPet(avatarInfo.id);
+                    break;
+                case 'mount':
+                    roomSession.mountPet(avatarInfo.id);
+                    break;
+                case 'dismount':
+                    roomSession.dismountPet(avatarInfo.id);
+                    break;
+            }
+        }
+
+        if (hideMenu) onClose();
+    };
+
+    useEffect(() => {
+        setMode((prevValue) => {
+            if (avatarInfo.petType === PetType.MONSTERPLANT) return MODE_MONSTER_PLANT;
+            else if (avatarInfo.saddle && !avatarInfo.rider) return MODE_SADDLED_UP;
+            else if (avatarInfo.rider) return MODE_RIDING;
+
+            return MODE_NORMAL;
+        });
+    }, [avatarInfo]);
+
+    return (
+        <NativeTextTree>
+            <ContextMenuView
+                category={RoomObjectCategory.UNIT}
+                classNames={['octane-avatar-action-menu', 'octane-avatar-action-menu--own']}
+                collapsable={true}
+                freezePositionOnHover={true}
+                objectId={avatarInfo.roomIndex}
+                showCaretIcon={false}
+                userType={RoomObjectType.PET}
+                onClose={onClose}
+            >
+                <ContextMenuHeaderView>{avatarInfo.name}</ContextMenuHeaderView>
+                <div className="air-avatar-menu-buttons">
+                    {mode === MODE_NORMAL && petRespectRemaining > 0 && (
+                        <ContextMenuListItemView onClick={(event) => processAction('respect')}>
+                            {LocalizeText('infostand.button.petrespect', ['count'], [petRespectRemaining.toString()])}
+                        </ContextMenuListItemView>
+                    )}
+                    {mode === MODE_SADDLED_UP && (
+                        <>
+                            {!!avatarInfo.publiclyRideable && (
+                                <ContextMenuListItemView onClick={(event) => processAction('mount')}>{LocalizeText('infostand.button.mount')}</ContextMenuListItemView>
+                            )}
+                            {petRespectRemaining > 0 && (
+                                <ContextMenuListItemView onClick={(event) => processAction('respect')}>
+                                    {LocalizeText('infostand.button.petrespect', ['count'], [petRespectRemaining.toString()])}
+                                </ContextMenuListItemView>
+                            )}
+                        </>
+                    )}
+                    {mode === MODE_RIDING && (
+                        <>
+                            <ContextMenuListItemView onClick={(event) => processAction('dismount')}>
+                                {LocalizeText('infostand.button.dismount')}
+                            </ContextMenuListItemView>
+                            {petRespectRemaining > 0 && (
+                                <ContextMenuListItemView onClick={(event) => processAction('respect')}>
+                                    {LocalizeText('infostand.button.petrespect', ['count'], [petRespectRemaining.toString()])}
+                                </ContextMenuListItemView>
+                            )}
+                        </>
+                    )}
+                    {mode === MODE_MONSTER_PLANT && !avatarInfo.dead && avatarInfo.energy / avatarInfo.maximumEnergy < 0.98 && (
+                        <ContextMenuListItemView onClick={(event) => processAction('treat')}>{LocalizeText('infostand.button.pettreat')}</ContextMenuListItemView>
+                    )}
+                    {canPickUp && (
+                        <ContextMenuListItemView onClick={(event) => processAction('pick_up')}>{LocalizeText('infostand.button.pickup')}</ContextMenuListItemView>
+                    )}
+                    {canGiveHandItem && (
+                        <ContextMenuListItemView onClick={(event) => processAction('pass_hand_item')}>
+                            {LocalizeText('infostand.button.pass_hand_item')}
+                        </ContextMenuListItemView>
+                    )}
+                    {/* Official wired_inspect: the creator tools' inspection, for whoever may open it. */}
+                    {showInspectButton && (
+                        <ContextMenuListItemView onClick={(event) => processAction('inspect')}>
+                            {localizeWithFallback('octane.room.inspect', 'Inspect')}
+                        </ContextMenuListItemView>
+                    )}
+                </div>
+            </ContextMenuView>
+        </NativeTextTree>
+    );
+};

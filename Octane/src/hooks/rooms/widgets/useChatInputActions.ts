@@ -1,0 +1,391 @@
+import {
+    AvatarExpressionEnum,
+    CreateLinkEvent,
+    GetEventDispatcher,
+    GetRoomEngine,
+    GetSessionDataManager,
+    GetTicker,
+    HabboClubLevelEnum,
+    RoomControllerLevel,
+    RoomRotatingEffect,
+    RoomSettingsComposer,
+    RoomShakingEffect,
+    RoomUnitDropHandItemComposer,
+    RoomZoomEvent,
+    TextureUtils,
+    TriggerHabbiconComposer,
+    VisitUserComposer,
+    WiredRoomStateActionComposer
+} from '@octane/renderer';
+import { useCallback, useRef } from 'react';
+import {
+    CanOpenFurniChooser,
+    CanOpenUserChooser,
+    ChatMessageTypeEnum,
+    GetClubMemberLevel,
+    GetConfigurationValue,
+    IsAnyRoomController,
+    LocalizeText,
+    localizeWithFallback,
+    parseSignId,
+    SendMessageComposer,
+    TryVisitRoom,
+    toggleRoomMouseHidden,
+    WIRED_PLAYTEST_TOGGLE_LINK,
+    WIRED_RESET_EVENT
+} from '../../../api';
+import { useNotification } from '../../notification';
+import { usePerkAllowed } from '../../session/usePerkAllowances';
+import { useTranslation } from '../../translation';
+import { useRoom } from '../useRoom';
+import { runOfficialChatCommand } from './chatInputCommands';
+import { useRoomStatsStore } from './roomStatsStore';
+
+/**
+ * Pure imperative dispatch for the chat-input widget. Exposes
+ * `sendChat(text, chatType, recipientName?, styleId?)` which:
+ *
+ *  1. Intercepts in-room slash commands (`:shake`, `:rotate`, `:zoom`,
+ *     `:screenshot`, `:pickall`, ...) and turns them into the matching
+ *     renderer/composer call — these never reach the server as chat
+ *     payload.
+ *  2. Falls back to the regular default/shout/whisper composer path,
+ *     optionally piping the text through the translation pipeline if
+ *     outgoing translation is enabled.
+ *
+ * No state lives in this hook — the typing/flood/idle state belongs
+ * to useChatInputState.
+ */
+export const useChatInputActions = () => {
+    const { showOctaneAlert = null, showConfirm = null } = useNotification();
+    const { settings, translateOutgoing, enqueueOutgoingTranslation, updateSettings = null } = useTranslation();
+    const cameraAllowed = usePerkAllowed('CAMERA');
+    const { roomSession = null } = useRoom();
+    // Translated lines leave in the order they were typed and only in the room they were typed in: each waits for
+    // the one before it, and one whose room has changed meanwhile is dropped.
+    const roomSessionRef = useRef(roomSession);
+    roomSessionRef.current = roomSession;
+    const translatedSendsRef = useRef<Promise<void>>(Promise.resolve());
+
+    const sendChat = useCallback(
+        (text: string, chatType: number, recipientName: string = '', styleId: number = 0) => {
+            if (text === '') return null;
+
+            const parts = text.split(' ');
+
+            if (parts.length > 0) {
+                const firstPart = parts[0];
+                let secondPart = '';
+
+                if (parts.length > 1) secondPart = parts[1];
+
+                if (firstPart.charAt(0) === ':' && secondPart === 'x') {
+                    const selectedAvatarId = GetRoomEngine().selectedAvatarId;
+
+                    if (selectedAvatarId > -1) {
+                        const userData = roomSession?.userDataManager?.getUserDataByIndex(selectedAvatarId);
+
+                        if (userData) {
+                            secondPart = userData.name;
+                            text = text.replace(' x', ' ' + userData.name);
+                        }
+                    }
+                }
+
+                const consumed = runOfficialChatCommand(firstPart.toLowerCase(), secondPart, parts, {
+                    session: roomSession,
+                    securityLevel: GetSessionDataManager().securityLevel ?? 0,
+                    isAmbassador: !!GetSessionDataManager().isAmbassador,
+                    isAnyRoomController: IsAnyRoomController(),
+                    cameraAllowed,
+                    createLink: CreateLinkEvent,
+                    confirm: (message, onConfirm, title) => showConfirm?.(message, onConfirm, null, null, null, title),
+                    localize: localizeWithFallback,
+                    specialCommand: (command) => GetSessionDataManager().sendSpecialCommandMessage(command),
+                    dropHandItem: () => SendMessageComposer(new RoomUnitDropHandItemComposer()),
+                    ignoreUser: (userId) => GetSessionDataManager().ignoreUser(userId),
+                    unignoreUser: (userId) => GetSessionDataManager().unignoreUser(userId),
+                    visitUser: (name) => SendMessageComposer(new VisitUserComposer(name)),
+                    visitRoom: TryVisitRoom,
+                    wiredRoomState: (rollback) => SendMessageComposer(new WiredRoomStateActionComposer(rollback)),
+                    wiredReset: () => window.dispatchEvent(new CustomEvent(WIRED_RESET_EVENT)),
+                    toggleMouse: () => void toggleRoomMouseHidden(),
+                    toggleFullscreen: () => {
+                        if (document.fullscreenElement) void document.exitFullscreen?.();
+                        else void document.documentElement.requestFullscreen?.().catch(() => undefined);
+                    },
+                    setFrameRate: (fps) => {
+                        GetTicker().maxFPS = fps;
+                    },
+                    setLanguage: (code) => updateSettings?.({ uiTextLanguage: code })
+                });
+
+                if (consumed) return null;
+
+                switch (firstPart.toLowerCase()) {
+                    case ':shake':
+                        RoomShakingEffect.init(250, 5000);
+                        RoomShakingEffect.turnVisualizationOn();
+
+                        return null;
+
+                    case ':rotate':
+                        RoomRotatingEffect.init(2500, 5000);
+                        RoomRotatingEffect.turnVisualizationOn();
+
+                        return null;
+                    case ':d':
+                    case ';d':
+                        if (GetClubMemberLevel() === HabboClubLevelEnum.VIP) {
+                            roomSession?.sendExpressionMessage(AvatarExpressionEnum.LAUGH.ordinal);
+                        }
+
+                        break;
+                    case 'o/':
+                    case '_o/':
+                        roomSession?.sendExpressionMessage(AvatarExpressionEnum.WAVE.ordinal);
+
+                        return null;
+                    case ':kiss':
+                        if (GetClubMemberLevel() === HabboClubLevelEnum.VIP) {
+                            roomSession?.sendExpressionMessage(AvatarExpressionEnum.BLOW.ordinal);
+
+                            return null;
+                        }
+
+                        break;
+                    case ':67':
+                        if (GetConfigurationValue('avatar.expression.67.enabled', false) && GetClubMemberLevel() === HabboClubLevelEnum.VIP) {
+                            roomSession?.sendExpressionMessage(AvatarExpressionEnum.EXPRESSION_67.ordinal);
+
+                            return null;
+                        }
+
+                        break;
+                    case ':jump':
+                        if (GetClubMemberLevel() === HabboClubLevelEnum.VIP) {
+                            roomSession?.sendExpressionMessage(AvatarExpressionEnum.JUMP.ordinal);
+
+                            return null;
+                        }
+
+                        break;
+                    case ':idle':
+                        roomSession?.sendExpressionMessage(AvatarExpressionEnum.IDLE.ordinal);
+
+                        return null;
+                    case '_b':
+                        roomSession?.sendExpressionMessage(AvatarExpressionEnum.RESPECT.ordinal);
+
+                        return null;
+                    case ':sign': {
+                        const signId = parseSignId(secondPart);
+
+                        if (signId !== null) roomSession?.sendSignMessage(signId);
+
+                        return null;
+                    }
+                    case ':habbicon': {
+                        const habbiconId = parseInt(secondPart);
+
+                        if (Number.isFinite(habbiconId) && habbiconId > 0) SendMessageComposer(new TriggerHabbiconComposer(habbiconId));
+
+                        return null;
+                    }
+                    case ':iddqd':
+                    case ':flip':
+                        if (roomSession) GetEventDispatcher().dispatchEvent(new RoomZoomEvent(roomSession.roomId, -1, true));
+
+                        return null;
+                    case ':zoom': {
+                        const zoomLevel = parseInt(secondPart);
+
+                        if (roomSession && Number.isFinite(zoomLevel)) GetEventDispatcher().dispatchEvent(new RoomZoomEvent(roomSession.roomId, zoomLevel));
+
+                        return null;
+                    }
+                    case ':screenshot':
+                        if (!roomSession) return null;
+
+                        {
+                            const texture = GetRoomEngine().createTextureFromRoom(roomSession.roomId, 1);
+
+                            (async () => {
+                                try {
+                                    let imageUrl: string = null;
+                                    try {
+                                        imageUrl = await TextureUtils.generateImageUrl(texture);
+                                    } finally {
+                                        // A whole-room texture: freed even when the image could not be made.
+                                        texture?.destroy?.(true);
+                                    }
+                                    if (!imageUrl) return;
+
+                                    const link = document.createElement('a');
+                                    link.href = imageUrl;
+                                    link.download = `room_${roomSession.roomId}_${Date.now()}.png`;
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                } catch (e) {
+                                    console.warn('[Screenshot] Failed:', e);
+                                }
+                            })();
+                        }
+                        return null;
+                    case ':pickall':
+                        if (roomSession?.isRoomOwner || IsAnyRoomController() || (roomSession?.controllerLevel ?? 0) >= RoomControllerLevel.GUEST) {
+                            showConfirm(
+                                LocalizeText('room.confirm.pick_all'),
+                                () => {
+                                    GetSessionDataManager().sendSpecialCommandMessage(':pickall');
+                                },
+                                null,
+                                null,
+                                null,
+                                LocalizeText('generic.alert.title')
+                            );
+                        }
+
+                        return null;
+                    case ':pickallbc':
+                        if (roomSession?.isRoomOwner || IsAnyRoomController() || (roomSession?.controllerLevel ?? 0) >= RoomControllerLevel.GUEST) {
+                            showConfirm(
+                                LocalizeText('room.confirm.pick_all_bc'),
+                                () => {
+                                    GetSessionDataManager().sendSpecialCommandMessage(':pickallbc');
+                                },
+                                null,
+                                null,
+                                null,
+                                LocalizeText('generic.alert.title')
+                            );
+                        }
+
+                        return null;
+                    case ':ejectall':
+                        if (roomSession?.isRoomOwner || IsAnyRoomController() || (roomSession?.controllerLevel ?? 0) >= RoomControllerLevel.GUEST) {
+                            showConfirm(
+                                LocalizeText('room.confirm.eject_all'),
+                                () => {
+                                    // The whole line: the official client forwards the argument too.
+                                    GetSessionDataManager().sendSpecialCommandMessage(text);
+                                },
+                                null,
+                                null,
+                                null,
+                                LocalizeText('generic.alert.title')
+                            );
+                        }
+                        return null;
+                    case ':furni':
+                        // AIR: rights holders, security level 2+ and ambassadors only; anyone else is swallowed silently.
+                        if (CanOpenFurniChooser(roomSession)) CreateLinkEvent('furni-chooser/');
+                        return null;
+                    case ':chooser':
+                        // AIR: swallowed silently for visitors below rights while the room's :chooser disabler is on.
+                        if (CanOpenUserChooser(roomSession)) CreateLinkEvent('user-chooser/');
+                        return null;
+                    case ':floor':
+                    case ':bcfloor':
+                        if ((roomSession?.controllerLevel ?? 0) >= RoomControllerLevel.ROOM_OWNER) CreateLinkEvent('floor-editor/show');
+
+                        return null;
+                    case ':wf':
+                    case ':wired':
+                        CreateLinkEvent('wiredmenu/open');
+                        return null;
+                    case ':var':
+                    case ':variables':
+                        CreateLinkEvent('wiredmenu/open/variable_overview');
+                        return null;
+                    case ':inspect':
+                    case ':inspection':
+                        CreateLinkEvent('wiredmenu/open/inspection');
+                        return null;
+                    case ':playtest':
+                        // AIR ChatInputWidgetHandler: flips the wired menu playtest preference, with its notification.
+                        CreateLinkEvent(WIRED_PLAYTEST_TOGGLE_LINK);
+                        return null;
+                    case ':showstats':
+                        // Official setFpsCounterEnabled: the ping / fps / frame time readout. Typed again, it goes away.
+                        useRoomStatsStore.getState().toggle();
+                        return null;
+                    case ':togglefps': {
+                        if (GetTicker().maxFPS > 0) GetTicker().maxFPS = 0;
+                        else GetTicker().maxFPS = GetConfigurationValue<number>('system.fps.animation', 24);
+
+                        return null;
+                    }
+                    case ':client':
+                    case ':octane':
+                        showOctaneAlert();
+                        return null;
+                    case ':settings':
+                        if (roomSession && (roomSession.isRoomOwner || IsAnyRoomController())) {
+                            SendMessageComposer(new RoomSettingsComposer(roomSession.roomId));
+                        }
+
+                        return null;
+                    case ':customize':
+                        CreateLinkEvent('customize/show');
+                        return null;
+                }
+            }
+
+            if (!roomSession) return null;
+
+            const preserveTrailingSpaces = (message: string) => {
+                if (message.startsWith(':')) return message;
+
+                return message.replace(/ +$/g, (match) => ' '.repeat(match.length));
+            };
+
+            const dispatchChatMessage = (message: string) => {
+                const preservedMessage = preserveTrailingSpaces(message);
+
+                switch (chatType) {
+                    case ChatMessageTypeEnum.CHAT_DEFAULT:
+                        roomSession.sendChatMessage(preservedMessage, styleId);
+                        return;
+                    case ChatMessageTypeEnum.CHAT_SHOUT:
+                        roomSession.sendShoutMessage(preservedMessage, styleId);
+                        return;
+                    case ChatMessageTypeEnum.CHAT_WHISPER:
+                        roomSession.sendWhisperMessage(recipientName, preservedMessage, styleId);
+                        return;
+                }
+            };
+
+            const trimmedText = text.trimStart();
+            const shouldTranslateOutgoing = settings.enabled && !!trimmedText.length && trimmedText.charAt(0) !== ':';
+
+            if (!shouldTranslateOutgoing) {
+                dispatchChatMessage(text);
+                return null;
+            }
+
+            const sessionAtSend = roomSession;
+            const translating = translateOutgoing(text).catch(() => null);
+
+            translatedSendsRef.current = translatedSendsRef.current.then(async () => {
+                const translation = await translating;
+
+                if (roomSessionRef.current !== sessionAtSend) return;
+
+                if (translation) {
+                    enqueueOutgoingTranslation(translation);
+                    dispatchChatMessage(translation.translatedText);
+                    return;
+                }
+
+                dispatchChatMessage(text);
+            });
+
+            return null;
+        },
+        [roomSession, settings, translateOutgoing, enqueueOutgoingTranslation, showConfirm, showOctaneAlert, cameraAllowed, updateSettings]
+    );
+
+    return { sendChat };
+};

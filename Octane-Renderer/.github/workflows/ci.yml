@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ Dev, main ]
+  push:
+    branches: [ Dev, main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack yarn install --immutable
+
+      - name: Dependencies
+        run: yarn knip --dependencies
+
+      - name: Test
+        run: yarn test
+
+      - name: Compile
+        run: yarn compile
+
+      - name: Build
+        run: yarn build

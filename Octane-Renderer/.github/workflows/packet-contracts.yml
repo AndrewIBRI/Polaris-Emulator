@@ -1,0 +1,79 @@
+name: Packet contracts
+
+on:
+  pull_request:
+    branches: [Dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out renderer
+        uses: actions/checkout@v7
+
+      - name: Resolve linked emulator branch
+        id: emulator
+        shell: bash
+        env:
+          RENDERER_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login || github.repository_owner }}
+        run: |
+          companion_repo="${PR_HEAD_OWNER}/Polaris-Emulator"
+          if git ls-remote --exit-code --heads "https://github.com/${companion_repo}.git" "$RENDERER_BRANCH" >/dev/null 2>&1; then
+            echo "repository=$companion_repo" >> "$GITHUB_OUTPUT"
+            echo "ref=$RENDERER_BRANCH" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads https://github.com/duckietm/Polaris-Emulator.git "$RENDERER_BRANCH" >/dev/null 2>&1; then
+            echo "repository=duckietm/Polaris-Emulator" >> "$GITHUB_OUTPUT"
+            echo "ref=$RENDERER_BRANCH" >> "$GITHUB_OUTPUT"
+          elif [[ "$RENDERER_BRANCH" == *-protocol ]] && git ls-remote --exit-code --heads "https://github.com/${companion_repo}.git" "${RENDERER_BRANCH%-protocol}" >/dev/null 2>&1; then
+            echo "repository=$companion_repo" >> "$GITHUB_OUTPUT"
+            echo "ref=${RENDERER_BRANCH%-protocol}" >> "$GITHUB_OUTPUT"
+          elif [[ "$RENDERER_BRANCH" == *-protocol ]] && git ls-remote --exit-code --heads https://github.com/duckietm/Polaris-Emulator.git "${RENDERER_BRANCH%-protocol}" >/dev/null 2>&1; then
+            echo "repository=duckietm/Polaris-Emulator" >> "$GITHUB_OUTPUT"
+            echo "ref=${RENDERER_BRANCH%-protocol}" >> "$GITHUB_OUTPUT"
+          else
+            linked_branch="${RENDERER_BRANCH%-renderer}-emulator"
+          fi
+
+          if [ -z "${linked_branch:-}" ]; then
+            exit 0
+          elif git ls-remote --exit-code --heads "https://github.com/${companion_repo}.git" "$linked_branch" >/dev/null 2>&1; then
+            echo "repository=$companion_repo" >> "$GITHUB_OUTPUT"
+            echo "ref=$linked_branch" >> "$GITHUB_OUTPUT"
+          else
+            echo "repository=duckietm/Polaris-Emulator" >> "$GITHUB_OUTPUT"
+            echo "ref=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out linked emulator
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.emulator.outputs.repository }}
+          ref: ${{ steps.emulator.outputs.ref }}
+          path: emulator
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack yarn install --immutable
+
+      - name: Verify renderer contracts
+        run: yarn test packages/communication/src/messages/contracts/__tests__
+
+      - name: Type-check renderer
+        run: yarn compile:fast
+
+      - name: Verify manifest identity
+        run: node scripts/verify-packet-contract-manifest.mjs --emulator emulator

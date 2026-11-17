@@ -1,0 +1,134 @@
+import { FC, useEffect, useMemo, useState } from 'react';
+import { LocalizeText, localizeWithFallback, WiredFurniType } from '../../../../api';
+import { Text } from '../../../../common';
+import { useWired } from '../../../../hooks';
+import { OctaneInput } from '../../../../layout';
+import { WiredSourcesSelector } from '../WiredSourcesSelector';
+import { WiredExtraBaseView } from './WiredExtraBaseView';
+import { WiredPlaceholderPreview } from './WiredPlaceholderPreview';
+import { Radio } from '../../../../common/Radio';
+import { NativeTextTree } from '../../../../common/native-text/NativeTextTree';
+
+const TYPE_SINGLE = 1;
+const TYPE_MULTIPLE = 2;
+const DEFAULT_PLACEHOLDER_NAME = '';
+// AIR: the delimiter starts empty and takes at most 5 characters; a longer one of an old box is cut on its next save.
+const DEFAULT_DELIMITER = '';
+const MAX_PLACEHOLDER_NAME_LENGTH = 32;
+const MAX_DELIMITER_LENGTH = 5;
+const PLACEHOLDER_WRAPPER_PATTERN = /^\$\((.*)\)$/;
+
+const normalizePlaceholderType = (value: number) => (value === TYPE_MULTIPLE ? TYPE_MULTIPLE : TYPE_SINGLE);
+const normalizeFurniSource = (value: number) => (value === 0 || value === 100 || value === 200 || value === 201 ? value : 0);
+const normalizePlaceholderName = (value: string) => {
+    let normalizedValue = (value ?? '').trim().replace(/[\t\r\n]/g, '');
+
+    if (PLACEHOLDER_WRAPPER_PATTERN.test(normalizedValue)) {
+        normalizedValue = normalizedValue.substring(2, normalizedValue.length - 1).trim();
+    }
+
+    return normalizedValue.slice(0, MAX_PLACEHOLDER_NAME_LENGTH);
+};
+
+const normalizeDelimiter = (value: string) => {
+    if (value === undefined || value === null) return DEFAULT_DELIMITER;
+
+    return value.replace(/[\t\r\n]/g, '').slice(0, MAX_DELIMITER_LENGTH);
+};
+
+const splitStringData = (value: string) => {
+    if (!value?.length) return [DEFAULT_PLACEHOLDER_NAME, DEFAULT_DELIMITER];
+
+    const parts = value.split('\t');
+
+    if (parts.length <= 1) return [value, DEFAULT_DELIMITER];
+
+    return [parts[0], parts[1]];
+};
+
+const escapeHtml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+export const WiredExtraTextOutputFurniNameView: FC<{}> = () => {
+    const { trigger = null, setIntParams = null, setStringParam = null, setSourceTypes = null } = useWired();
+    const [placeholderName, setPlaceholderName] = useState(DEFAULT_PLACEHOLDER_NAME);
+    const [placeholderType, setPlaceholderType] = useState(TYPE_SINGLE);
+    const [delimiter, setDelimiter] = useState(DEFAULT_DELIMITER);
+    const [furniSource, setFurniSource] = useState(0);
+
+    useEffect(() => {
+        if (!trigger) return;
+
+        const [nextPlaceholderName, nextDelimiter] = splitStringData(trigger.stringData);
+
+        setPlaceholderName(normalizePlaceholderName(nextPlaceholderName));
+        setDelimiter(normalizeDelimiter(nextDelimiter));
+        // Official layout: [multiple names 0/1], the furni source in the official slot.
+        setPlaceholderType((trigger.intData[0] ?? 0) === 1 ? TYPE_MULTIPLE : TYPE_SINGLE);
+        setFurniSource(normalizeFurniSource(trigger.furniSourceTypes?.[0] ?? 0));
+    }, [trigger]);
+
+    const previewToken = useMemo(() => {
+        const effectiveName = normalizePlaceholderName(placeholderName) || 'placeholder';
+
+        return `$(${effectiveName})`;
+    }, [placeholderName]);
+
+    const previewHtml = useMemo(() => LocalizeText('wiredfurni.params.texts.placeholder_preview', ['placeholder'], [escapeHtml(previewToken)]), [previewToken]);
+
+    const save = () => {
+        setIntParams([normalizePlaceholderType(placeholderType) === TYPE_MULTIPLE ? 1 : 0]);
+        setSourceTypes({ furni: [normalizeFurniSource(furniSource)], users: [] });
+        // AIR: the name alone, or `name\tdelimiter` when every name is written.
+        const name = normalizePlaceholderName(placeholderName);
+
+        setStringParam(placeholderType === TYPE_MULTIPLE ? `${name}\t${normalizeDelimiter(delimiter)}` : name);
+    };
+
+    return (
+        <NativeTextTree>
+            <WiredExtraBaseView
+                hasSpecialInput={true}
+                requiresFurni={WiredFurniType.STUFF_SELECTION_OPTION_BY_ID_BY_TYPE_OR_FROM_CONTEXT}
+                save={save}
+                cardStyle={{ width: 400 }}
+                footerCollapsible={false}
+                footer={<WiredSourcesSelector showFurni={true} furniSource={furniSource} onChangeFurni={(value) => setFurniSource(normalizeFurniSource(value))} />}
+            >
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1">
+                        <Text>{LocalizeText('wiredfurni.params.texts.placeholder_name')}</Text>
+                        <OctaneInput
+                            maxLength={MAX_PLACEHOLDER_NAME_LENGTH}
+                            type="text"
+                            value={placeholderName}
+                            onChange={(event) => setPlaceholderName(normalizePlaceholderName(event.target.value))}
+                        />
+                    </div>
+                    <WiredPlaceholderPreview previewHtml={previewHtml} previewToken={previewToken} />
+                    <div className="flex flex-col gap-1">
+                        <Text>{LocalizeText('wiredfurni.params.texts.placeholder_type')}</Text>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                            <Radio checked={placeholderType === TYPE_SINGLE} name="wiredTextOutputFurniNameType" onCheckedChange={() => setPlaceholderType(TYPE_SINGLE)} />
+                            <Text>{localizeWithFallback('wiredfurni.params.texts.placeholder_type.furni.1', LocalizeText('wiredfurni.params.texts.placeholder_type.1'))}</Text>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                            <Radio checked={placeholderType === TYPE_MULTIPLE} name="wiredTextOutputFurniNameType" onCheckedChange={() => setPlaceholderType(TYPE_MULTIPLE)} />
+                            <Text>{localizeWithFallback('wiredfurni.params.texts.placeholder_type.furni.2', LocalizeText('wiredfurni.params.texts.placeholder_type.2'))}</Text>
+                        </label>
+                    </div>
+                    {placeholderType === TYPE_MULTIPLE && (
+                        <div className="flex flex-col gap-1">
+                            <Text>{LocalizeText('wiredfurni.params.texts.select_delimiter')}</Text>
+                            <OctaneInput
+                                maxLength={MAX_DELIMITER_LENGTH}
+                                type="text"
+                                value={delimiter}
+                                onChange={(event) => setDelimiter(normalizeDelimiter(event.target.value))}
+                            />
+                        </div>
+                    )}
+                </div>
+            </WiredExtraBaseView>
+        </NativeTextTree>
+    );
+};

@@ -1,0 +1,180 @@
+import { WiredConditionlayout } from '../../../../api';
+import { WiredConditionCheckArrayView } from './WiredConditionCheckArrayView';
+import { WiredConditionActorDirView } from './WiredConditionActorDirView';
+import { WiredConditionActorHasHandItemView } from './WiredConditionActorHasHandItem';
+import { WiredConditionActorIsGroupMemberView } from './WiredConditionActorIsGroupMemberView';
+import { WiredConditionActorIsOnFurniView } from './WiredConditionActorIsOnFurniView';
+import { WiredConditionActorIsTeamMemberView } from './WiredConditionActorIsTeamMemberView';
+import { WiredConditionActorIsWearingBadgeView } from './WiredConditionActorIsWearingBadgeView';
+import { WiredConditionActorIsWearingEffectView } from './WiredConditionActorIsWearingEffectView';
+import { WiredConditionChestHasItemsView } from './WiredConditionChestHasItemsView';
+import { WiredConditionChestHasItemTypeView } from './WiredConditionChestHasItemTypeView';
+import { WiredConditionCounterTimeMatchesView } from './WiredConditionCounterTimeMatchesView';
+import { WiredConditionDateRangeView } from './WiredConditionDateRangeView';
+import { WiredConditionFurniHasAvatarOnView } from './WiredConditionFurniHasAvatarOnView';
+import { WiredConditionFurniHasFurniOnView } from './WiredConditionFurniHasFurniOnView';
+import { WiredConditionFurniHasNotFurniOnView } from './WiredConditionFurniHasNotFurniOnView';
+import { WiredConditionFurniIsOfTypeView } from './WiredConditionFurniIsOfTypeView';
+import { WiredConditionFurniMatchesSnapshotView } from './WiredConditionFurniMatchesSnapshotView';
+import { WiredConditionHasAltitudeView } from './WiredConditionHasAltitudeView';
+import { WiredConditionHasVariableView } from './WiredConditionHasVariableView';
+import { WiredConditionMatchDateView } from './WiredConditionMatchDateView';
+import { WiredConditionMatchTimeView } from './WiredConditionMatchTimeView';
+import { WiredConditionMovementValidationView } from './WiredConditionMovementValidationView';
+import { WiredConditionNoBattleBanzaiView } from './WiredConditionNoBattleBanzaiView';
+import { WiredConditionSelectionQuantityView } from './WiredConditionSelectionQuantityView';
+import { WiredConditionTeamHasRankView } from './WiredConditionTeamHasRankView';
+import { WiredConditionTeamHasScoreView } from './WiredConditionTeamHasScoreView';
+import { WiredConditionTimeElapsedLessView } from './WiredConditionTimeElapsedLessView';
+import { WiredConditionTimeElapsedMoreView } from './WiredConditionTimeElapsedMoreView';
+import { WiredConditionFurniOpacityView } from './WiredConditionFurniOpacityView';
+import { WiredConditionUserCooldownView } from './WiredConditionUserCooldownView';
+import { WiredConditionUserHighscorePointsView } from './WiredConditionUserHighscorePointsView';
+import { WiredConditionUserLevelView } from './WiredConditionUserLevelView';
+import { WiredConditionUserOnceView } from './WiredConditionUserOnceView';
+import { WiredConditionUserRankView } from './WiredConditionUserRankView';
+import { WiredConditionTriggererMatchView } from './WiredConditionTriggererMatchView';
+import { WiredConditionTriggerFurniAdjacentStateView } from './WiredConditionTriggerFurniAdjacentStateView';
+import { WiredConditionUserCountInRoomView } from './WiredConditionUserCountInRoomView';
+import { WiredConditionUserOnFurniWithStateView } from './WiredConditionUserOnFurniWithStateView';
+import { WiredConditionUserPerformsActionView } from './WiredConditionUserPerformsActionView';
+import { WiredConditionVariableAgeMatchView } from './WiredConditionVariableAgeMatchView';
+import { WiredConditionVariableValueMatchView } from './WiredConditionVariableValueMatchView';
+
+export const WiredConditionLayoutView = (code: number) => {
+    switch (code) {
+        case WiredConditionlayout.CHECK_ARRAY:
+            return <WiredConditionCheckArrayView />;
+        case WiredConditionlayout.ACTOR_HAS_HANDITEM:
+            return <WiredConditionActorHasHandItemView />;
+        case WiredConditionlayout.NOT_ACTOR_HAS_HANDITEM:
+            return <WiredConditionActorHasHandItemView />;
+        case WiredConditionlayout.ACTOR_DIR:
+            return <WiredConditionActorDirView />;
+        case WiredConditionlayout.SLC_QUANTITY:
+            return <WiredConditionSelectionQuantityView />;
+        case WiredConditionlayout.HAS_VAR:
+            return <WiredConditionHasVariableView />;
+        case WiredConditionlayout.NEG_HAS_VAR:
+            return <WiredConditionHasVariableView />;
+        case WiredConditionlayout.VAR_VAL_MATCH:
+            return <WiredConditionVariableValueMatchView />;
+        case WiredConditionlayout.VAR_AGE_MATCH:
+            return <WiredConditionVariableAgeMatchView />;
+        case WiredConditionlayout.TRIGGERER_MATCH:
+            return <WiredConditionTriggererMatchView />;
+        case WiredConditionlayout.NOT_TRIGGERER_MATCH:
+            return <WiredConditionTriggererMatchView />;
+        case WiredConditionlayout.ACTOR_IS_GROUP_MEMBER:
+            return <WiredConditionActorIsGroupMemberView />;
+        case WiredConditionlayout.NOT_ACTOR_IN_GROUP:
+            return <WiredConditionActorIsGroupMemberView />;
+        case WiredConditionlayout.ACTOR_IS_ON_FURNI:
+            return <WiredConditionActorIsOnFurniView />;
+        case WiredConditionlayout.NOT_ACTOR_ON_FURNI:
+            return <WiredConditionActorIsOnFurniView />;
+        case WiredConditionlayout.ACTOR_IS_IN_TEAM:
+            return <WiredConditionActorIsTeamMemberView />;
+        case WiredConditionlayout.NOT_ACTOR_IN_TEAM:
+            return <WiredConditionActorIsTeamMemberView />;
+        case WiredConditionlayout.ACTOR_IS_WEARING_BADGE:
+            return <WiredConditionActorIsWearingBadgeView />;
+        case WiredConditionlayout.NOT_ACTOR_WEARS_BADGE:
+            return <WiredConditionActorIsWearingBadgeView />;
+        case WiredConditionlayout.USER_STATE:
+            return <WiredConditionActorIsWearingEffectView showEffect={false} />;
+        case WiredConditionlayout.NOT_USER_STATE:
+            return <WiredConditionActorIsWearingEffectView showEffect={false} />;
+        case WiredConditionlayout.USER_AMOUNT:
+            return <WiredConditionTeamHasScoreView scoped={false} />;
+        case WiredConditionlayout.USER_ATTRIBUTE:
+            return <WiredConditionActorIsWearingBadgeView field={null} />;
+        case WiredConditionlayout.NOT_USER_ATTRIBUTE:
+            return <WiredConditionActorIsWearingBadgeView field={null} />;
+        case WiredConditionlayout.USER_RANGE:
+            return <WiredConditionHasAltitudeView variant="userRange" />;
+        case WiredConditionlayout.FURNI_RANGE:
+            return <WiredConditionHasAltitudeView variant="furniRange" />;
+        case WiredConditionlayout.USER_LEVEL:
+            return <WiredConditionUserLevelView />;
+        case WiredConditionlayout.FURNI_PROPERTY:
+            return <WiredConditionHasAltitudeView variant="furniProperty" />;
+        case WiredConditionlayout.USER_TAG:
+            return <WiredConditionActorIsWearingBadgeView field="tag" />;
+        case WiredConditionlayout.NOT_USER_TAG:
+            return <WiredConditionActorIsWearingBadgeView field="tag" />;
+        case WiredConditionlayout.USER_MOTTO:
+            return <WiredConditionActorIsWearingBadgeView field="motto" />;
+        case WiredConditionlayout.ACTOR_IS_WEARING_EFFECT:
+            return <WiredConditionActorIsWearingEffectView />;
+        case WiredConditionlayout.NOT_ACTOR_WEARING_EFFECT:
+            return <WiredConditionActorIsWearingEffectView />;
+        case WiredConditionlayout.DATE_RANGE_ACTIVE:
+            return <WiredConditionDateRangeView />;
+        case WiredConditionlayout.MOVEMENT_VALIDATION:
+            return <WiredConditionMovementValidationView />;
+        case WiredConditionlayout.MATCH_TIME:
+            return <WiredConditionMatchTimeView />;
+        case WiredConditionlayout.MATCH_DATE:
+            return <WiredConditionMatchDateView />;
+        case WiredConditionlayout.FURNIS_HAVE_AVATARS:
+            return <WiredConditionFurniHasAvatarOnView />;
+        case WiredConditionlayout.FURNI_NOT_HAVE_HABBO:
+            return <WiredConditionFurniHasAvatarOnView negative={true} />;
+        case WiredConditionlayout.HAS_STACKED_FURNIS:
+            return <WiredConditionFurniHasFurniOnView />;
+        case WiredConditionlayout.NOT_HAS_STACKED_FURNIS:
+            return <WiredConditionFurniHasNotFurniOnView />;
+        case WiredConditionlayout.STUFF_TYPE_MATCHES:
+            return <WiredConditionFurniIsOfTypeView />;
+        case WiredConditionlayout.NOT_FURNI_IS_OF_TYPE:
+            return <WiredConditionFurniIsOfTypeView />;
+        case WiredConditionlayout.STATES_MATCH:
+            return <WiredConditionFurniMatchesSnapshotView />;
+        case WiredConditionlayout.NOT_STATES_MATCH:
+            return <WiredConditionFurniMatchesSnapshotView />;
+        case WiredConditionlayout.TIME_ELAPSED_LESS:
+            return <WiredConditionTimeElapsedLessView />;
+        case WiredConditionlayout.TIME_ELAPSED_MORE:
+            return <WiredConditionTimeElapsedMoreView />;
+        case WiredConditionlayout.USER_COUNT_IN:
+        case WiredConditionlayout.NOT_USER_COUNT_IN:
+            return <WiredConditionUserCountInRoomView />;
+        case WiredConditionlayout.COUNTER_TIME_MATCHES:
+            return <WiredConditionCounterTimeMatchesView />;
+        case WiredConditionlayout.USER_PERFORMS_ACTION:
+            return <WiredConditionUserPerformsActionView />;
+        case WiredConditionlayout.NOT_USER_PERFORMS_ACTION:
+            return <WiredConditionUserPerformsActionView />;
+        case WiredConditionlayout.HAS_ALTITUDE:
+            return <WiredConditionHasAltitudeView />;
+        case WiredConditionlayout.TEAM_HAS_SCORE:
+            return <WiredConditionTeamHasScoreView />;
+        case WiredConditionlayout.TEAM_HAS_RANK:
+            return <WiredConditionTeamHasRankView />;
+        case WiredConditionlayout.NO_BATTLEBANZAI:
+            return <WiredConditionNoBattleBanzaiView />;
+        case WiredConditionlayout.USER_ON_FURNI_WITH_STATE:
+            return <WiredConditionUserOnFurniWithStateView />;
+        case WiredConditionlayout.TRG_FURNI_ADJACENT_STATE:
+            return <WiredConditionTriggerFurniAdjacentStateView />;
+        case WiredConditionlayout.CHEST_HAS_ITEMS:
+            return <WiredConditionChestHasItemsView />;
+        case WiredConditionlayout.CHEST_HAS_ITEM_TYPE:
+            return <WiredConditionChestHasItemTypeView />;
+        case WiredConditionlayout.USER_RANK:
+            return <WiredConditionUserRankView />;
+        case WiredConditionlayout.FURNI_OPACITY:
+            return <WiredConditionFurniOpacityView />;
+        case WiredConditionlayout.USER_COOLDOWN:
+            return <WiredConditionUserCooldownView />;
+        case WiredConditionlayout.USER_ONCE:
+            return <WiredConditionUserOnceView />;
+        case WiredConditionlayout.USER_DAILY:
+            return <WiredConditionUserOnceView daily={true} />;
+        case WiredConditionlayout.USER_HIGHSCORE_POINTS:
+            return <WiredConditionUserHighscorePointsView />;
+    }
+
+    return null;
+};

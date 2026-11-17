@@ -1,0 +1,410 @@
+import {
+    GetGuestRoomResultEvent,
+    GetRoomEngine,
+    GetSessionDataManager,
+    PetFigureData,
+    RoomChatSettings,
+    RoomChatSettingsEvent,
+    RoomDragEvent,
+    RoomObjectCategory,
+    RoomObjectType,
+    RoomObjectVariable,
+    RoomSessionChatEvent,
+    RoomUserData,
+    SystemChatStyleEnum
+} from '@octane/renderer';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useUserChatPreferencesStore } from '@/state/userChatPreferences';
+import {
+    applyUserChatPreferences,
+    CHAT_MODE_FREE_FLOW,
+    ChatBubbleMessage,
+    ChatBubbleUtilities,
+    ChatEntryType,
+    ChatHistoryCurrentDate,
+    GetConfigurationRecord,
+    GetConfigurationValue,
+    GetRoomObjectScreenLocation,
+    IRoomChatSettings,
+    loadEmojiShortcodes,
+    LocalizeText,
+    PlaySound,
+    resolveChatMode,
+    RoomChatFormatter
+} from '../../../api';
+import { getStoredChatTextSize } from '../../../components/room/widgets/chat-input/chatTextSize';
+import { useChatHistory } from './../../chat-history';
+import { useMessageEvent, useOctaneEvent } from '../../events';
+import { useUserDataSnapshot } from '../../session/useSessionSnapshots';
+import { useTranslation } from '../../translation';
+import { useRoom } from '../useRoom';
+
+const CHAT_MESSAGES_MAX = 250;
+
+const useChatWidgetState = () => {
+    const [chatMessages, setChatMessages] = useState<ChatBubbleMessage[]>([]);
+    const [chatSettings, setChatSettings] = useState<IRoomChatSettings>({
+        mode: RoomChatSettings.CHAT_MODE_FREE_FLOW,
+        weight: RoomChatSettings.CHAT_BUBBLE_WIDTH_NORMAL,
+        speed: RoomChatSettings.CHAT_SCROLL_SPEED_NORMAL,
+        distance: 50,
+        protection: RoomChatSettings.FLOOD_FILTER_NORMAL
+    });
+    const { roomSession = null } = useRoom();
+    const { addChatEntry, updateChatEntry } = useChatHistory();
+    const { settings, translateIncoming, consumeOutgoingTranslation } = useTranslation();
+    const isDisposed = useRef(false);
+    // Reactive: re-renders if the session-data snapshot flips (e.g.
+    // reconnect under a different user id). Safe to call here —
+    // useChatWidget is not singleton-backed (see export below),
+    // so the real React dispatcher is in scope and
+    // useSyncExternalStore installs correctly.
+    const ownUserId = useUserDataSnapshot().userId || -1;
+
+    const applyTranslationToBubble = useCallback(
+        (chatMessage: ChatBubbleMessage, originalText: string, translatedText: string, detectedLanguage: string, targetLanguage: string) => {
+            const resolvedOriginalText = originalText || chatMessage.text || '';
+            const resolvedTranslatedText = translatedText || resolvedOriginalText;
+            const originalFormattedText = RoomChatFormatter(resolvedOriginalText);
+            const translatedFormattedText = RoomChatFormatter(resolvedTranslatedText);
+
+            chatMessage.text = resolvedOriginalText;
+            chatMessage.formattedText = originalFormattedText;
+            chatMessage.originalText = resolvedOriginalText;
+            chatMessage.originalFormattedText = originalFormattedText;
+            chatMessage.translatedText = resolvedTranslatedText;
+            chatMessage.translatedFormattedText = translatedFormattedText;
+            chatMessage.translationDetectedLanguage = detectedLanguage || '';
+            chatMessage.translationTargetLanguage = targetLanguage || '';
+            chatMessage.showTranslation = true;
+        },
+        []
+    );
+
+    const buildTranslatedEntryPatch = useCallback((originalText: string, translatedText: string, detectedLanguage: string, targetLanguage: string) => {
+        const resolvedOriginalText = originalText || '';
+        const resolvedTranslatedText = translatedText || resolvedOriginalText;
+
+        return {
+            showTranslation: true,
+            message: RoomChatFormatter(resolvedOriginalText),
+            originalMessage: RoomChatFormatter(resolvedOriginalText),
+            translatedMessage: RoomChatFormatter(resolvedTranslatedText),
+            detectedLanguage: detectedLanguage || '',
+            targetLanguage: targetLanguage || ''
+        };
+    }, []);
+
+    const applyAsyncTranslation = useCallback(
+        (bubbleId: number, chatEntryId: number, originalText: string, translatedText: string, detectedLanguage: string, targetLanguage: string) => {
+            setChatMessages((prevValue) => {
+                const index = prevValue.findIndex((chat) => chat.id === bubbleId);
+
+                if (index === -1) return prevValue;
+
+                // A new object, so the memoized bubble view sees the translation.
+                const bubble = Object.assign(Object.create(Object.getPrototypeOf(prevValue[index])), prevValue[index]);
+                const newValue = [...prevValue];
+
+                applyTranslationToBubble(bubble, originalText, translatedText, detectedLanguage, targetLanguage);
+                newValue[index] = bubble;
+
+                return newValue;
+            });
+
+            updateChatEntry(chatEntryId, buildTranslatedEntryPatch(originalText, translatedText, detectedLanguage, targetLanguage));
+        },
+        [applyTranslationToBubble, buildTranslatedEntryPatch, updateChatEntry]
+    );
+
+    const userBubbleWidth = useUserChatPreferencesStore((state) => state.bubbleWidth);
+    const userScrollSpeed = useUserChatPreferencesStore((state) => state.scrollSpeed);
+    const userChatMode = useUserChatPreferencesStore((state) => state.chatMode);
+    const chatMode = resolveChatMode(chatSettings?.mode ?? CHAT_MODE_FREE_FLOW, userChatMode);
+    const effectiveChatSettings = useMemo(
+        () => applyUserChatPreferences(chatSettings, userBubbleWidth, userScrollSpeed),
+        [chatSettings, userBubbleWidth, userScrollSpeed]
+    );
+
+    const getScrollSpeed = useMemo(() => {
+        if (!effectiveChatSettings) return 6000;
+
+        switch (effectiveChatSettings.speed) {
+            case RoomChatSettings.CHAT_SCROLL_SPEED_FAST:
+                return 3000;
+            case RoomChatSettings.CHAT_SCROLL_SPEED_NORMAL:
+                return 6000;
+            case RoomChatSettings.CHAT_SCROLL_SPEED_SLOW:
+                return 12000;
+        }
+    }, [effectiveChatSettings]);
+
+    // Synchronous on purpose: the bubble and the history entry go in the order the messages arrived. The head image
+    // is downloaded afterwards and put on the bubble when it is ready; awaiting it first let a message from a user
+    // whose figure was cached overtake an earlier one.
+    useOctaneEvent<RoomSessionChatEvent>(RoomSessionChatEvent.CHAT_EVENT, (event) => {
+        const roomObject = GetRoomEngine().getRoomObject(roomSession.roomId, event.objectId, RoomObjectCategory.UNIT);
+        const bubbleLocation = roomObject ? GetRoomObjectScreenLocation(roomSession.roomId, roomObject?.id, RoomObjectCategory.UNIT) : { x: 0, y: 0 };
+        const userData = roomObject ? roomSession.userDataManager.getUserDataByIndex(event.objectId) : new RoomUserData(-1);
+
+        // The unit is in the room but its user data is not (yet): there is no one to put the bubble on.
+        if (!userData) return;
+
+        let username = '';
+        let avatarColor = 0;
+        const imageUrl: string = null;
+        let imageRequest: Promise<string> = null;
+        let chatType = event.chatType;
+        let styleId = event.style;
+        let userType = 0;
+        let petType = -1;
+        let text = event.message;
+
+        if (userData) {
+            userType = userData.type;
+
+            const figure = userData.figure;
+
+            switch (userType) {
+                case RoomObjectType.PET:
+                    imageRequest = ChatBubbleUtilities.getPetImage(figure, 2, true, 64, roomObject.model.getValue<string>(RoomObjectVariable.FIGURE_POSTURE));
+                    petType = new PetFigureData(figure).typeId;
+                    break;
+                case RoomObjectType.USER:
+                    imageRequest = ChatBubbleUtilities.getUserImage(figure);
+                    break;
+                case RoomObjectType.RENTABLE_BOT:
+                case RoomObjectType.BOT:
+                    styleId = SystemChatStyleEnum.BOT;
+                    break;
+            }
+
+            avatarColor = ChatBubbleUtilities.AVATAR_COLOR_CACHE.get(figure);
+            username = userData.name;
+        }
+
+        switch (chatType) {
+            case RoomSessionChatEvent.CHAT_TYPE_RESPECT:
+                text = LocalizeText('widgets.chatbubble.respect', ['username'], [username]);
+
+                if (GetConfigurationRecord('respect.options')['enabled']) PlaySound(GetConfigurationRecord('respect.options')['sound']);
+
+                break;
+            case RoomSessionChatEvent.CHAT_TYPE_PETREVIVE:
+            case RoomSessionChatEvent.CHAT_TYPE_PET_REBREED_FERTILIZE:
+            case RoomSessionChatEvent.CHAT_TYPE_PET_SPEED_FERTILIZE: {
+                let textKey = 'widget.chatbubble.petrevived';
+
+                if (chatType === RoomSessionChatEvent.CHAT_TYPE_PET_REBREED_FERTILIZE) {
+                    textKey = 'widget.chatbubble.petrefertilized';
+                } else if (chatType === RoomSessionChatEvent.CHAT_TYPE_PET_SPEED_FERTILIZE) {
+                    textKey = 'widget.chatbubble.petspeedfertilized';
+                }
+
+                let targetUserName: string = null;
+
+                const newRoomObject = GetRoomEngine().getRoomObject(roomSession.roomId, event.extraParam, RoomObjectCategory.UNIT);
+
+                if (newRoomObject) {
+                    const newUserData = roomSession.userDataManager.getUserDataByIndex(newRoomObject.id);
+
+                    if (newUserData) targetUserName = newUserData.name;
+                }
+
+                text = LocalizeText(textKey, ['petName', 'userName'], [username, targetUserName]);
+                break;
+            }
+            case RoomSessionChatEvent.CHAT_TYPE_PETRESPECT:
+                text = LocalizeText('widget.chatbubble.petrespect', ['petname'], [username]);
+                break;
+            case RoomSessionChatEvent.CHAT_TYPE_PETTREAT:
+                text = LocalizeText('widget.chatbubble.pettreat', ['petname'], [username]);
+                break;
+            case RoomSessionChatEvent.CHAT_TYPE_HAND_ITEM_RECEIVED:
+                text = LocalizeText('widget.chatbubble.handitem', ['username', 'handitem'], [username, LocalizeText('handitem' + event.extraParam)]);
+                break;
+            case RoomSessionChatEvent.CHAT_TYPE_MUTE_REMAINING: {
+                const remainingSeconds = Math.max(0, event.extraParam);
+                const hours = Math.floor(remainingSeconds / 3600).toString();
+                const minutes = Math.floor((remainingSeconds % 3600) / 60).toString();
+                const seconds = (remainingSeconds % 60).toString();
+
+                text = LocalizeText('widget.chatbubble.mutetime', ['hours', 'minutes', 'seconds'], [hours, minutes, seconds]);
+                break;
+            }
+        }
+
+        const isTranslatableChatType =
+            chatType === RoomSessionChatEvent.CHAT_TYPE_SPEAK ||
+            chatType === RoomSessionChatEvent.CHAT_TYPE_WHISPER ||
+            chatType === RoomSessionChatEvent.CHAT_TYPE_SHOUT;
+        const outgoingTranslation = isTranslatableChatType && userData.webID === ownUserId ? consumeOutgoingTranslation(text) : null;
+        const originalText = outgoingTranslation?.originalText || text;
+        const formattedText = RoomChatFormatter(originalText);
+        const color = avatarColor && ('#' + avatarColor.toString(16).padStart(6, '0') || null);
+
+        const chatMessage = new ChatBubbleMessage(
+            userData.roomIndex,
+            RoomObjectCategory.UNIT,
+            roomSession.roomId,
+            originalText,
+            formattedText,
+            username,
+            { x: bubbleLocation.x, y: bubbleLocation.y },
+            chatType,
+            styleId,
+            imageUrl,
+            color
+        );
+        // The renderer adds bubbleWidthOverride to the chat event in Octane-Renderer#212; until that
+        // lands the published event has no such field, so it is read as optional.
+        chatMessage.textSize = getStoredChatTextSize();
+        chatMessage.bubbleWidthOverride = (event as RoomSessionChatEvent & { bubbleWidthOverride?: number }).bubbleWidthOverride ?? -1;
+        chatMessage.hideUsername = event.hideUsername === true;
+
+        if (outgoingTranslation) {
+            applyTranslationToBubble(
+                chatMessage,
+                outgoingTranslation.originalText,
+                outgoingTranslation.translatedText,
+                outgoingTranslation.detectedLanguage,
+                outgoingTranslation.targetLanguage
+            );
+        }
+
+        chatMessage.prefixText = event.prefixText || '';
+        chatMessage.prefixColor = event.prefixColor || '';
+        chatMessage.prefixIcon = event.prefixIcon || '';
+        chatMessage.prefixEffect = event.prefixEffect || '';
+        chatMessage.prefixFont = event.prefixFont || '';
+        chatMessage.nickIcon = event.nickIcon || '';
+        chatMessage.displayOrder = event.displayOrder || 'icon-prefix-name';
+
+        setChatMessages((prevValue) => {
+            const newValue = [...prevValue, chatMessage];
+
+            if (newValue.length > CHAT_MESSAGES_MAX) newValue.shift();
+
+            return newValue;
+        });
+
+        // Pet, Bot and Rentable Bot chat is fire-and-forget ("UDP-style"):
+        // the live bubble already rendered above, but we deliberately skip
+        // addChatEntry so the entry never lands in localStorage. A pet-heavy
+        // room used to push 30+ KB per message (base64 head data URL) into
+        // the chat history, exhausting the localStorage quota in minutes.
+        // Real users still go through the full persisted path.
+        const chatEntryId =
+            userType === RoomObjectType.USER
+                ? addChatEntry({
+                      id: -1,
+                      webId: userData.webID,
+                      entityId: userData.roomIndex,
+                      name: username,
+                      look: userData.figure,
+                      imageUrl,
+                      textSize: chatMessage.textSize,
+                      style: styleId,
+                      chatType: chatType,
+                      entityType: userData.type,
+                      message: formattedText,
+                      text: originalText,
+                      timestamp: ChatHistoryCurrentDate(),
+                      type: ChatEntryType.TYPE_CHAT,
+                      roomId: roomSession.roomId,
+                      color,
+                      ...(outgoingTranslation
+                          ? buildTranslatedEntryPatch(
+                                outgoingTranslation.originalText,
+                                outgoingTranslation.translatedText,
+                                outgoingTranslation.detectedLanguage,
+                                outgoingTranslation.targetLanguage
+                            )
+                          : {})
+                  })
+                : -1;
+
+        if (imageRequest) {
+            const bubbleId = chatMessage.id;
+
+            void imageRequest
+                .then((url) => {
+                    if (!url || isDisposed.current) return;
+
+                    setChatMessages((prevValue) => {
+                        const index = prevValue.findIndex((chat) => chat.id === bubbleId);
+
+                        if (index === -1) return prevValue;
+
+                        // A new object, so the bubble view sees the change.
+                        const bubble = Object.assign(Object.create(Object.getPrototypeOf(prevValue[index])), prevValue[index], { imageUrl: url });
+                        const newValue = [...prevValue];
+
+                        newValue[index] = bubble;
+
+                        return newValue;
+                    });
+
+                    updateChatEntry(chatEntryId, { imageUrl: url });
+                })
+                .catch(() => undefined);
+        }
+
+        if (!settings.enabled || outgoingTranslation || !isTranslatableChatType || !text.trim().length) return;
+
+        void translateIncoming(text).then((translation) => {
+            if (!translation || isDisposed.current) return;
+
+            applyAsyncTranslation(
+                chatMessage.id,
+                chatEntryId,
+                translation.originalText,
+                translation.translatedText,
+                translation.detectedLanguage,
+                translation.targetLanguage
+            );
+        });
+    });
+
+    useOctaneEvent<RoomDragEvent>(RoomDragEvent.ROOM_DRAG, (event) => {
+        if (!chatMessages.length || event.roomId !== roomSession.roomId) return;
+
+        const offsetX = event.offsetX;
+
+        chatMessages.forEach((chat) => {
+            if (!chat.elementRef) return;
+
+            chat.left += offsetX;
+
+            if (chat.location) chat.location = { ...chat.location, x: chat.location.x + offsetX };
+        });
+    });
+
+    useMessageEvent<GetGuestRoomResultEvent>(GetGuestRoomResultEvent, (event) => {
+        const parser = event.getParser();
+
+        if (!parser.roomEnter) return;
+
+        setChatSettings(parser.chat);
+    });
+
+    useMessageEvent<RoomChatSettingsEvent>(RoomChatSettingsEvent, (event) => {
+        const parser = event.getParser();
+
+        setChatSettings(parser.chat);
+    });
+
+    useEffect(() => {
+        isDisposed.current = false;
+
+        if (GetConfigurationValue<boolean>('chat.emoji.enabled', true)) loadEmojiShortcodes();
+
+        return () => {
+            isDisposed.current = true;
+        };
+    }, []);
+
+    return { chatMessages, setChatMessages, chatSettings: effectiveChatSettings, getScrollSpeed, chatMode };
+};
+
+export const useChatWidget = useChatWidgetState;

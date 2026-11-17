@@ -1,0 +1,122 @@
+import { CreateLinkEvent } from '@octane/renderer';
+import { FC } from 'react';
+import { attemptItemPlacement, CatalogPageName, LocalizeText, localizeWithFallback } from '../../../../api';
+import { Button, Column, LayoutGiftTagView, LayoutImage, OctaneCardContentView, OctaneCardHeaderView, OctaneCardView, Text } from '../../../../common';
+import { useCatalogUiState, useFurniturePresentWidget, useInventoryFurni } from '../../../../hooks';
+import '../../../../css/room/FurniWindowsBAir.css';
+import { NativeTextTree } from '../../../../common/native-text/NativeTextTree';
+
+export const FurnitureGiftOpeningView: FC<{}> = (props) => {
+    const {
+        objectId = -1,
+        classId = -1,
+        itemType = null,
+        text = null,
+        isOwnerOfFurniture = false,
+        senderName = null,
+        senderFigure = null,
+        trustedSender = false,
+        placedItemId = -1,
+        placedItemType = null,
+        placedInRoom = false,
+        imageUrl = null,
+        openPresent = null,
+        onClose = null
+    } = useFurniturePresentWidget();
+    const { groupItems = [] } = useInventoryFurni();
+    const { setGiftReceiver = null } = useCatalogUiState();
+
+    if (objectId === -1) return null;
+
+    const place = (itemId: number) => {
+        const groupItem = groupItems.find((group) => group.getItemById(itemId)?.id === itemId);
+
+        if (groupItem) attemptItemPlacement(groupItem);
+
+        onClose();
+    };
+
+    const giveGiftBack = () => {
+        setGiftReceiver?.(senderName);
+        CreateLinkEvent(`catalog/open/${CatalogPageName.GIFT_SHOP}`);
+    };
+
+    return (
+        <NativeTextTree>
+            <OctaneCardView className="octane-gift-opening octane-furni-gift-opening" theme="primary-slim">
+                <OctaneCardHeaderView
+                    headerText={LocalizeText(
+                        senderName ? 'widget.furni.present.window.title_from' : 'widget.furni.present.window.title',
+                        ['name'],
+                        [senderName]
+                    )}
+                    onCloseClick={onClose}
+                />
+                <OctaneCardContentView>
+                    {placedItemId === -1 && (
+                        <Column overflow="hidden">
+                            {/* AIR packagecard_new `warning`: staff gifts say so; any other gift warns about links in its message. */}
+                            <div className={`octane-gift-banner ${trustedSender ? 'is-trusted' : 'is-untrusted'}`}>
+                                {!trustedSender && <span className="octane-gift-banner__icon" />}
+                                <span className="octane-gift-banner__text">
+                                    {trustedSender
+                                        ? localizeWithFallback('gift.trusted.banner.text', 'This gift was sent to you by a staff member.')
+                                        : localizeWithFallback('gift.untrusted.banner.text', 'NEVER visit websites linked from gift messages. They are almost always scam sites that steal your account.')}
+                                </span>
+                            </div>
+                            <div className="flex justify-center items-center overflow-auto">
+                                <LayoutGiftTagView figure={senderFigure} message={text} userName={senderName} />
+                            </div>
+                            {isOwnerOfFurniture && (
+                                <div className="flex gap-1">
+                                    {senderName && (
+                                        <Button fullWidth onClick={giveGiftBack}>
+                                            {LocalizeText('widget.furni.present.give_gift', ['name'], [senderName])}
+                                        </Button>
+                                    )}
+                                    <Button fullWidth variant="success" onClick={openPresent}>
+                                        {LocalizeText('widget.furni.present.open_gift')}
+                                    </Button>
+                                </div>
+                            )}
+                        </Column>
+                    )}
+                    {placedItemId > -1 && (
+                        <div className="flex gap-2 overflow-hidden">
+                            <Column center className="p-2">
+                                <LayoutImage imageUrl={imageUrl} />
+                            </Column>
+                            <Column grow>
+                                <Column center gap={1}>
+                                    <Text wrap className="octane-furni-gift-opening__message">
+                                        {LocalizeText('widget.furni.present.message_opened')}
+                                    </Text>
+                                    <Text bold className="octane-furni-gift-opening__name">
+                                        {text}
+                                    </Text>
+                                </Column>
+                                <Column grow gap={1}>
+                                    <div className="flex gap-1">
+                                        {placedInRoom && (
+                                            <Button fullWidth onClick={null}>
+                                                {LocalizeText('widget.furni.present.put_in_inventory')}
+                                            </Button>
+                                        )}
+                                        <Button fullWidth variant="success" onClick={(event) => place(placedItemId)}>
+                                            {LocalizeText(placedInRoom ? 'widget.furni.present.keep_in_room' : 'widget.furni.present.place_in_room')}
+                                        </Button>
+                                    </div>
+                                    {senderName && senderName.length && (
+                                        <Button fullWidth onClick={giveGiftBack}>
+                                            {LocalizeText('widget.furni.present.give_gift', ['name'], [senderName])}
+                                        </Button>
+                                    )}
+                                </Column>
+                            </Column>
+                        </div>
+                    )}
+                </OctaneCardContentView>
+            </OctaneCardView>
+        </NativeTextTree>
+    );
+};

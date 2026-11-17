@@ -1,0 +1,275 @@
+import {
+    GetRoomEngine,
+    GetSessionDataManager,
+    IFurnitureData,
+    IGetImageListener,
+    PetFigureData,
+    RoomEngineTriggerWidgetEvent,
+    RoomObjectCategory,
+    RoomObjectVariable,
+    RoomSessionPresentEvent,
+    Vector3d
+} from '@octane/renderer';
+import { useMemo, useRef, useState } from 'react';
+import { IsOwnerOfFurniture, LocalizeText, ProductTypeEnum } from '../../../../api';
+import { useOctaneEvent } from '../../../events';
+import { useFurniRemovedEvent } from '../../engine';
+import { useRoom } from '../../useRoom';
+
+const FLOOR: string = 'floor';
+const WALLPAPER: string = 'wallpaper';
+const LANDSCAPE: string = 'landscape';
+const POSTER: string = 'poster';
+
+const useFurniturePresentWidgetState = () => {
+    const [objectId, setObjectId] = useState(-1);
+    const [classId, setClassId] = useState(-1);
+    const [itemType, setItemType] = useState<string>(null);
+    const [text, setText] = useState<string>(null);
+    const [isOwnerOfFurniture, setIsOwnerOfFurniture] = useState(false);
+    const [senderName, setSenderName] = useState<string>(null);
+    const [senderFigure, setSenderFigure] = useState<string>(null);
+    // AIR `furniture_trusted_sender`: staff or the hotel sent the gift. Any other gift gets the scam warning.
+    const [trustedSender, setTrustedSender] = useState(false);
+    const [placedItemId, setPlacedItemId] = useState(-1);
+    const [placedItemType, setPlacedItemType] = useState<string>(null);
+    const [placedInRoom, setPlacedInRoom] = useState(false);
+    const [imageUrl, setImageUrl] = useState<string>(null);
+    const { roomSession = null } = useRoom();
+    // Official `PresentFurniWidget` only shows the contents of the present it is opening itself, so the
+    // `PresentOpened` answer to an Ecotron box (the same packet) stays with the Ecotron card.
+    const openingRef = useRef(false);
+    // The present whose image is awaited: an image for an earlier present that arrives late is dropped.
+    const imageRequestRef = useRef(0);
+
+    const onClose = () => {
+        openingRef.current = false;
+        setObjectId(-1);
+        setClassId(-1);
+        setItemType(null);
+        setText(null);
+        setIsOwnerOfFurniture(false);
+        setSenderName(null);
+        setSenderFigure(null);
+        setTrustedSender(false);
+        setPlacedItemId(-1);
+        setPlacedItemType(null);
+        setPlacedInRoom(false);
+        setImageUrl(null);
+    };
+
+    const openPresent = () => {
+        // A second click while the first open is on its way opened it twice.
+        if (objectId === -1 || openingRef.current) return;
+
+        openingRef.current = true;
+        roomSession.openGift(objectId);
+
+        GetRoomEngine().changeObjectModelData(
+            GetRoomEngine().activeRoomId,
+            objectId,
+            RoomObjectCategory.FLOOR,
+            RoomObjectVariable.FURNITURE_DISABLE_PICKING_ANIMATION,
+            1
+        );
+    };
+
+    const imageListener: IGetImageListener = useMemo(() => {
+        // async fix image
+        return {
+            imageReady: (result) => {
+                const request = imageRequestRef.current;
+
+                (async () => {
+                    const image = await result.getImage();
+
+                    if (image && request === imageRequestRef.current) setImageUrl(image.src);
+                })();
+            },
+            imageFailed: () => {
+                // no-op
+            }
+        };
+    }, []);
+
+    useOctaneEvent<RoomSessionPresentEvent>(RoomSessionPresentEvent.RSPE_PRESENT_OPENED, (event) => {
+        if (!openingRef.current) return;
+
+        openingRef.current = false;
+        const imageRequest = ++imageRequestRef.current;
+
+        let furniData: IFurnitureData = null;
+
+        if (event.itemType === ProductTypeEnum.FLOOR) {
+            furniData = GetSessionDataManager().getFloorItemData(event.classId);
+        } else if (event.itemType === ProductTypeEnum.WALL) {
+            furniData = GetSessionDataManager().getWallItemData(event.classId);
+        }
+
+        let isOwnerOfFurni = false;
+
+        if (event.placedInRoom) {
+            const roomObject = GetRoomEngine().getRoomObject(roomSession.roomId, event.placedItemId, RoomObjectCategory.FLOOR);
+
+            if (roomObject) isOwnerOfFurni = IsOwnerOfFurniture(roomObject);
+        }
+
+        let giftImage: string = null;
+
+        switch (event.itemType) {
+            case ProductTypeEnum.WALL: {
+                if (furniData) {
+                    switch (furniData.className) {
+                        case FLOOR:
+                        case LANDSCAPE:
+                        case WALLPAPER:
+                            let imageType = null;
+                            let message = null;
+
+                            if (furniData.className === FLOOR) {
+                                imageType = 'packagecard_icon_floor';
+                                message = LocalizeText('inventory.furni.item.floor.name');
+                            } else if (furniData.className === LANDSCAPE) {
+                                imageType = 'packagecard_icon_landscape';
+                                message = LocalizeText('inventory.furni.item.landscape.name');
+                            } else {
+                                imageType = 'packagecard_icon_wallpaper';
+                                message = LocalizeText('inventory.furni.item.wallpaper.name');
+                            }
+
+                            setText(message);
+                            //setImageUrl(getGiftImageUrl(imageType));
+                            break;
+                        case POSTER: {
+                            const productCode = event.productCode;
+
+                            let extras: string = null;
+
+                            if (productCode.indexOf('poster') === 0) extras = productCode.replace('poster', '');
+
+                            const productData = GetSessionDataManager().getProductData(productCode);
+
+                            let name: string = null;
+
+                            if (productData) name = productData.name;
+                            else if (furniData) name = furniData.name;
+
+                            setText(name);
+                            setImageUrl(GetRoomEngine().getFurnitureWallIconUrl(event.classId, extras));
+
+                            break;
+                        }
+                        default: {
+                            setText(furniData?.name || null);
+                            setImageUrl(GetRoomEngine().getFurnitureWallIconUrl(event.classId));
+                            break;
+                        }
+                    }
+                }
+
+                break;
+            }
+            case ProductTypeEnum.HABBO_CLUB:
+                setText(LocalizeText('widget.furni.present.hc'));
+                //setImageUrl(getGiftImageUrl('packagecard_icon_hc'));
+                break;
+            default: {
+                if (event.placedItemType === ProductTypeEnum.PET) {
+                    const petfigureString = event.petFigureString;
+
+                    if (petfigureString && petfigureString.length) {
+                        const petFigureData = new PetFigureData(petfigureString);
+
+                        (async () => {
+                            const petImage = GetRoomEngine().getRoomObjectPetImage(
+                                petFigureData.typeId,
+                                petFigureData.paletteId,
+                                petFigureData.color,
+                                new Vector3d(90),
+                                64,
+                                imageListener,
+                                true,
+                                0,
+                                petFigureData.customParts
+                            );
+
+                            // getImage can resolve null; it threw here before the widget was reset.
+                            const image = petImage ? await petImage.getImage() : null;
+                            if (image && imageRequest === imageRequestRef.current) setImageUrl(image.src);
+                        })();
+                    }
+                } else {
+                    (async () => {
+                        const furniImage = GetRoomEngine().getFurnitureFloorImage(event.classId, new Vector3d(90), 64, imageListener);
+
+                        const image = furniImage ? await furniImage.getImage() : null;
+                        if (image && imageRequest === imageRequestRef.current) setImageUrl(image.src);
+                    })();
+                }
+
+                const productData = GetSessionDataManager().getProductData(event.productCode);
+
+                // A class missing from the furnidata (a known state after bulk imports) threw and left the widget open.
+                setText((productData && productData.name) || furniData?.name || null);
+                break;
+            }
+        }
+
+        setObjectId(0);
+        setClassId(event.classId);
+        setItemType(event.itemType);
+        setIsOwnerOfFurniture(isOwnerOfFurni);
+        setPlacedItemId(event.placedItemId);
+        setPlacedItemType(event.placedItemType);
+        setPlacedInRoom(event.placedInRoom);
+    });
+
+    useOctaneEvent<RoomEngineTriggerWidgetEvent>(RoomEngineTriggerWidgetEvent.REQUEST_PRESENT, (event) => {
+        const roomObject = GetRoomEngine().getRoomObject(event.roomId, event.objectId, event.category);
+
+        if (!roomObject) return null;
+
+        onClose();
+
+        setObjectId(event.objectId);
+        setClassId(-1);
+        setText(roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_DATA) || '');
+        setIsOwnerOfFurniture(IsOwnerOfFurniture(roomObject));
+        setSenderName(roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_PURCHASER_NAME) || null);
+        setSenderFigure(roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_PURCHASER_FIGURE) || null);
+        setTrustedSender(roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_TRUSTED_SENDER) === 1);
+    });
+
+    useFurniRemovedEvent(objectId !== -1, (event) => {
+        if (event.id === objectId) {
+            // The server may remove the opened present before its `PresentOpened` arrives; keep waiting for it.
+            const wasOpening = openingRef.current;
+
+            onClose();
+            openingRef.current = wasOpening;
+        }
+
+        if (event.id === placedItemId) {
+            if (placedInRoom) setPlacedInRoom(false);
+        }
+    });
+
+    return {
+        objectId,
+        classId,
+        itemType,
+        text,
+        isOwnerOfFurniture,
+        senderName,
+        senderFigure,
+        trustedSender,
+        placedItemId,
+        placedItemType,
+        placedInRoom,
+        imageUrl,
+        openPresent,
+        onClose
+    };
+};
+
+export const useFurniturePresentWidget = useFurniturePresentWidgetState;

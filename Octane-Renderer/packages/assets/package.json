@@ -1,0 +1,26 @@
+{
+  "name": "@octane/assets",
+  "description": "Octane assets module",
+  "version": "1.0.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "GPL-3.0",
+  "scripts": {
+    "compile": "tsc --project ./tsconfig.json --noEmit false"
+  },
+  "main": "./index",
+  "dependencies": {
+    "@jsquash/avif": "^2.1.1",
+    "@octane/api": "1.0.0",
+    "@octane/utils": "1.0.0",
+    "apng-js": "^1.1.5",
+    "gifuct-js": "^2.1.2",
+    "pixi.js": "^8.22.0",
+    "wasm-webp": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

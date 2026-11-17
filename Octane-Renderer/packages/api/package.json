@@ -1,0 +1,20 @@
+{
+  "name": "@octane/api",
+  "description": "Octane api module",
+  "version": "1.0.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "GPL-3.0",
+  "scripts": {
+    "compile": "tsc --project ./tsconfig.json --noEmit false"
+  },
+  "main": "./index",
+  "dependencies": {
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

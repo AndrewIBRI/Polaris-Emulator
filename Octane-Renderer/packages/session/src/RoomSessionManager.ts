@@ -1,0 +1,667 @@
+import { IConnection, IMessageEvent, IOctaneEvent, IRoomHandlerListener, IRoomSession, IRoomSessionManager, IRoomSessionSnapshot } from '@octane/api';
+import { GetCommunication, RoomEnterComposer, RoomUnitWalkComposer } from '@octane/communication';
+import { GetEventDispatcher, OctaneEvent, OctaneEventType, RoomSessionEvent, SocketReauthenticatedEvent } from '@octane/events';
+import { OctaneLogger } from '@octane/utils';
+import { RoomSession } from './RoomSession';
+import { BaseHandler, GenericErrorHandler, PetPackageHandler, PollHandler, RoomChatHandler, RoomDataHandler, RoomDimmerPresetsHandler, RoomPermissionsHandler, RoomPresentHandler, RoomSessionHandler, RoomUsersHandler, WordQuizHandler } from './handler';
+import { shouldAttemptRoomReEntry, shouldRestoreStoredRoom } from './reconnectRoomPolicy';
+
+const STORAGE_KEY_ROOM_ID = 'nitro.session.lastRoomId';
+const STORAGE_KEY_ROOM_PASSWORD = 'nitro.session.lastRoomPassword';
+const STORAGE_KEY_POS_X = 'nitro.session.lastPosX';
+const STORAGE_KEY_POS_Y = 'nitro.session.lastPosY';
+
+export class RoomSessionManager implements IRoomSessionManager, IRoomHandlerListener
+{
+    private _handlers: BaseHandler[] = [];
+    // What init registered, so dispose can take it back: the handlers' packets and the socket listeners.
+    private _handlerEvents: { connection: IConnection, event: IMessageEvent }[] = [];
+    private _socketListeners: { type: string, callback: (event: IOctaneEvent) => void }[] = [];
+    private _sessions: Map<string, IRoomSession> = new Map();
+    private _pendingSession: IRoomSession = null;
+
+    private _sessionStarting: boolean = false;
+    private _viewerSession: IRoomSession = null;
+    private _playTestMode: boolean = false;
+
+    private _lastRoomId: number = -1;
+    private _lastRoomPassword: string = null;
+    private _isReconnecting: boolean = false;
+    // A server-sent disconnect (DesktopView, a refused entry) that came while the reconnect guard was up: dropping it
+    // left a ghost room after a kick or an F5 into a room one is banned from. Applied when the guard ends, unless the
+    // re-entry succeeded first - then it was the old connection's teardown.
+    private _pendingDisconnect: number | null = null;
+    private _reconnectGuardTimer: ReturnType<typeof setTimeout> = null;
+    private _pendingRoomClear: ReturnType<typeof setTimeout> = null;
+    private _savedPosX: number = -1;
+    private _savedPosY: number = -1;
+    private _activeRoomSessionSnapshot: Readonly<IRoomSessionSnapshot> | null = null;
+
+    public invalidateRoomSessionSnapshot(): void
+    {
+        this._activeRoomSessionSnapshot = null;
+
+        GetEventDispatcher().dispatchEvent(new OctaneEvent(OctaneEventType.ROOM_SESSION_UPDATED));
+    }
+
+    public getActiveRoomSessionSnapshot(): Readonly<IRoomSessionSnapshot> | null
+    {
+        const session = this._viewerSession;
+
+        if(!session) return null;
+
+        if(this._activeRoomSessionSnapshot && this._activeRoomSessionSnapshot.session === session) return this._activeRoomSessionSnapshot;
+
+        this._activeRoomSessionSnapshot = Object.freeze<IRoomSessionSnapshot>({
+            roomId: session.roomId,
+            state: session.state,
+            isRoomOwner: session.isRoomOwner,
+            isSpectator: session.isSpectator,
+            isDecorating: session.isDecorating,
+            isGuildRoom: session.isGuildRoom,
+            isPrivateRoom: session.isPrivateRoom,
+            controllerLevel: session.controllerLevel,
+            doorMode: session.doorMode,
+            tradeMode: session.tradeMode,
+            allowPets: session.allowPets,
+            groupId: session.groupId,
+            session
+        });
+
+        return this._activeRoomSessionSnapshot;
+    }
+
+    public async init(): Promise<void>
+    {
+        // A second init registered every handler and socket listener again, so each packet was handled twice.
+        if(this._handlers.length || this._socketListeners.length) return;
+
+        this.createHandlers();
+        this.processPendingSession();
+        this.setupReconnectListener();
+        this.checkPersistedRoom();
+    }
+
+    private checkPersistedRoom(): void
+    {
+        try
+        {
+            const storedRoomId = sessionStorage.getItem(STORAGE_KEY_ROOM_ID);
+
+            if(!storedRoomId) return;
+
+            const roomId = parseInt(storedRoomId, 10);
+
+            if(isNaN(roomId) || roomId <= 0) return;
+
+            this._lastRoomId = roomId;
+            // The password is kept in memory only: a socket reconnect still has it, a page reload asks for it again.
+            this._lastRoomPassword = null;
+            sessionStorage.removeItem(STORAGE_KEY_ROOM_PASSWORD);
+
+            this._isReconnecting = true;
+        }
+        catch (e)
+        {}
+    }
+
+    /**
+     * Takes back everything init registered and the timers it may have left, so a later init starts clean. Nothing
+     * called this before: a logout without a page reload kept every handler and listener of the old session.
+     */
+    public dispose(): void
+    {
+        for(const { connection, event } of this._handlerEvents) connection.removeMessageEvent(event);
+        this._handlerEvents = [];
+
+        for(const handler of this._handlers) handler?.dispose();
+        this._handlers = [];
+
+        for(const { type, callback } of this._socketListeners) GetEventDispatcher().removeEventListener(type, callback);
+        this._socketListeners = [];
+
+        this.clearGuardTimer();
+        this.cancelRoomIdClear();
+    }
+
+    private listen<T extends IOctaneEvent>(type: string, callback: (event: T) => void): void
+    {
+        GetEventDispatcher().addEventListener<T>(type, callback);
+        this._socketListeners.push({ type, callback });
+    }
+
+    // The handlers register their packets on the connection they are given; this one records each, for dispose.
+    private recordingConnection(connection: IConnection): IConnection
+    {
+        return new Proxy(connection, {
+            get: (target, key) =>
+            {
+                if(key === 'addMessageEvent') return (event: IMessageEvent) =>
+                {
+                    this._handlerEvents.push({ connection: target, event });
+                    target.addMessageEvent(event);
+                };
+
+                const value = Reflect.get(target, key, target);
+
+                return (typeof value === 'function') ? value.bind(target) : value;
+            }
+        });
+    }
+
+    private createHandlers(): void
+    {
+        const connection = GetCommunication().connection ? this.recordingConnection(GetCommunication().connection) : null;
+
+        if(!connection) return;
+
+        this._handlers.push(
+            new RoomChatHandler(connection, this),
+            new RoomDataHandler(connection, this),
+            new RoomDimmerPresetsHandler(connection, this),
+            new RoomPermissionsHandler(connection, this),
+            new RoomSessionHandler(connection, this),
+            new RoomUsersHandler(connection, this),
+            new RoomPresentHandler(connection, this),
+            new GenericErrorHandler(connection, this),
+            new WordQuizHandler(connection, this),
+            new PollHandler(connection, this),
+            new PetPackageHandler(connection, this),
+        );
+    }
+
+    private setupReconnectListener(): void
+    {
+        this.listen(OctaneEventType.SOCKET_RECONNECTING, () =>
+        {
+            this.cancelRoomIdClear();
+            if(this._lastRoomId > 0)
+            {
+                this.persistRoom(this._lastRoomId);
+            }
+            this._isReconnecting = true;
+        });
+
+        this.listen(OctaneEventType.SOCKET_RECONNECTED, () =>
+        {
+            this.clearGuardTimer();
+
+            if(shouldAttemptRoomReEntry(OctaneEventType.SOCKET_RECONNECTED)) this.attemptRoomReEntry();
+        });
+
+        this.listen<SocketReauthenticatedEvent>(OctaneEventType.SOCKET_REAUTHENTICATED, event =>
+        {
+            this.snapshotSavedPosition();
+            this.clearGuardTimer();
+
+            if(shouldAttemptRoomReEntry(event.type, event, this._lastRoomId))
+            {
+                this.attemptRoomReEntry();
+            }
+            else
+            {
+                this._savedPosX = -1;
+                this._savedPosY = -1;
+                this.endReconnectGuard();
+            }
+        });
+
+        this.listen(OctaneEventType.SOCKET_RECONNECT_FAILED, () =>
+        {
+            OctaneLogger.log('[RoomSessionManager] SOCKET_RECONNECT_FAILED - clearing state');
+            this.clearGuardTimer();
+            this._isReconnecting = false;
+            this._pendingDisconnect = null;
+            this._lastRoomId = -1;
+            this._lastRoomPassword = null;
+            this.clearPersistedRoom();
+            this.clearPersistedPosition();
+        });
+
+        this.listen(OctaneEventType.SOCKET_CLOSED, () =>
+        {
+            this.clearGuardTimer();
+            this._isReconnecting = false;
+            this._pendingDisconnect = null;
+            this._lastRoomId = -1;
+            this._lastRoomPassword = null;
+            this.clearPersistedRoom();
+            this.clearPersistedPosition();
+        });
+    }
+
+    private endReconnectGuard(): void
+    {
+        if(!this._isReconnecting) return;
+
+        this._isReconnecting = false;
+
+        const pending = this._pendingDisconnect;
+
+        this._pendingDisconnect = null;
+
+        if(pending !== null) this.removeSession(pending);
+    }
+
+    private clearGuardTimer(): void
+    {
+        if(this._reconnectGuardTimer)
+        {
+            clearTimeout(this._reconnectGuardTimer);
+            this._reconnectGuardTimer = null;
+        }
+    }
+
+    private scheduleRoomIdClear(): void
+    {
+        if(this._pendingRoomClear)
+        {
+            clearTimeout(this._pendingRoomClear);
+        }
+
+        this._pendingRoomClear = setTimeout(() =>
+        {
+            this._pendingRoomClear = null;
+            this._lastRoomId = -1;
+            this._lastRoomPassword = null;
+        }, 5000);
+    }
+
+    private cancelRoomIdClear(): void
+    {
+        if(this._pendingRoomClear)
+        {
+            clearTimeout(this._pendingRoomClear);
+            this._pendingRoomClear = null;
+        }
+    }
+
+    private attemptRoomReEntry(): void
+    {
+        const roomId = this._lastRoomId;
+        const password = this._lastRoomPassword;
+
+        if(roomId <= 0)
+        {
+            this.endReconnectGuard();
+
+            return;
+        }
+
+        const existingSession = this.getSession(roomId);
+
+        if(existingSession)
+        {
+            GetCommunication().connection.send(new RoomEnterComposer(roomId, password, this._savedPosX, this._savedPosY));
+
+            this.clearGuardTimer();
+            this._reconnectGuardTimer = setTimeout(() =>
+            {
+                this._reconnectGuardTimer = null;
+
+                this.endReconnectGuard();
+            }, 5000);
+
+            return;
+        }
+
+        this._sessions.clear();
+        this._viewerSession = null;
+        this.invalidateRoomSessionSnapshot();
+        this.createSession(roomId, password, this._savedPosX, this._savedPosY);
+        this.clearGuardTimer();
+        this._reconnectGuardTimer = setTimeout(() =>
+        {
+            this._reconnectGuardTimer = null;
+
+            this.endReconnectGuard();
+        }, 10000);
+    }
+
+    public tryRestoreSession(): boolean
+    {
+        try
+        {
+            const storedRoomId = sessionStorage.getItem(STORAGE_KEY_ROOM_ID);
+
+            if(!storedRoomId) return false;
+
+            const roomId = parseInt(storedRoomId, 10);
+
+            if(isNaN(roomId) || roomId <= 0) return false;
+
+            const password = this._lastRoomPassword;
+
+            let spawnX = -1;
+            let spawnY = -1;
+
+            try
+            {
+                const posX = sessionStorage.getItem(STORAGE_KEY_POS_X);
+                const posY = sessionStorage.getItem(STORAGE_KEY_POS_Y);
+
+                if(posX && posY)
+                {
+                    spawnX = parseInt(posX, 10);
+                    spawnY = parseInt(posY, 10);
+
+                    if(isNaN(spawnX) || isNaN(spawnY))
+                    {
+                        spawnX = -1; spawnY = -1;
+                    }
+                }
+            }
+            catch (e)
+            {}
+
+            if(!shouldRestoreStoredRoom(roomId, this.getSession(roomId)?.roomId ?? null)) return true;
+
+            this._isReconnecting = true;
+            this.createSession(roomId, password, spawnX, spawnY);
+            this.clearGuardTimer();
+            this._reconnectGuardTimer = setTimeout(() =>
+            {
+                this._reconnectGuardTimer = null;
+
+                this.endReconnectGuard();
+            }, 10000);
+
+            return true;
+        }
+        catch (e)
+        {
+            return false;
+        }
+    }
+
+    private persistRoom(roomId: number): void
+    {
+        try
+        {
+            if(roomId > 0)
+            {
+                sessionStorage.setItem(STORAGE_KEY_ROOM_ID, roomId.toString());
+
+                // A room password never goes to storage, where any script on the page could read it in clear text.
+                sessionStorage.removeItem(STORAGE_KEY_ROOM_PASSWORD);
+            }
+            else
+            {
+                this.clearPersistedRoom();
+            }
+        }
+        catch (e)
+        {}
+    }
+
+    private clearPersistedRoom(): void
+    {
+        try
+        {
+            sessionStorage.removeItem(STORAGE_KEY_ROOM_ID);
+            sessionStorage.removeItem(STORAGE_KEY_ROOM_PASSWORD);
+        }
+        catch (e)
+        {}
+    }
+
+    private clearPersistedPosition(): void
+    {
+        try
+        {
+            sessionStorage.removeItem(STORAGE_KEY_POS_X);
+            sessionStorage.removeItem(STORAGE_KEY_POS_Y);
+        }
+        catch (e)
+        {}
+    }
+
+    private snapshotSavedPosition(): void
+    {
+        try
+        {
+            const posX = sessionStorage.getItem(STORAGE_KEY_POS_X);
+            const posY = sessionStorage.getItem(STORAGE_KEY_POS_Y);
+
+            if(!posX || !posY) return;
+
+            this._savedPosX = parseInt(posX, 10);
+            this._savedPosY = parseInt(posY, 10);
+
+        }
+        catch (e)
+        {
+            this._savedPosX = -1;
+            this._savedPosY = -1;
+        }
+    }
+
+    private setHandlers(session: IRoomSession): void
+    {
+        if(!this._handlers || !this._handlers.length) return;
+
+        for(const handler of this._handlers)
+        {
+            if(!handler) continue;
+
+            handler.setRoomId(session.roomId);
+        }
+    }
+
+    private processPendingSession(): void
+    {
+        if(!this._pendingSession) return;
+
+        this.addSession(this._pendingSession);
+
+        this._pendingSession = null;
+    }
+
+    public getSession(id: number): IRoomSession
+    {
+        const existing = this._sessions.get(this.getRoomId(id));
+
+        if(!existing) return null;
+
+        return existing;
+    }
+
+    public createSession(roomId: number, password: string = null, spawnX: number = -1, spawnY: number = -1): boolean
+    {
+        const session = new RoomSession();
+
+        session.roomId = roomId;
+        session.password = password;
+        session.spawnX = spawnX;
+        session.spawnY = spawnY;
+        session.onSnapshotChange = () => this.invalidateRoomSessionSnapshot();
+
+        return this.addSession(session);
+    }
+
+    private addSession(roomSession: IRoomSession): boolean
+    {
+        this._sessionStarting = true;
+
+        if(this._sessions.get(this.getRoomId(roomSession.roomId))) this.removeSession(roomSession.roomId, false);
+
+        this._sessions.set(this.getRoomId(roomSession.roomId), roomSession);
+
+        GetEventDispatcher().dispatchEvent(new RoomSessionEvent(RoomSessionEvent.CREATED, roomSession));
+
+        this._viewerSession = roomSession;
+        // A clear scheduled when the previous room was left must not wipe the room entered now.
+        this.cancelRoomIdClear();
+        this._lastRoomId = roomSession.roomId;
+        this._lastRoomPassword = roomSession.password;
+        this.persistRoom(roomSession.roomId);
+
+        this.invalidateRoomSessionSnapshot();
+
+        this.startSession(this._viewerSession);
+
+        return true;
+    }
+
+    public startSession(session: IRoomSession): boolean
+    {
+        if(session.state === RoomSessionEvent.STARTED) return false;
+
+        this._sessionStarting = false;
+
+        if(!session.start())
+        {
+            this.removeSession(session.roomId);
+
+            return false;
+        }
+
+        // AIR WiredMenuController onRoomSessionEvent(STARTED): every room entered takes the playtest preference over.
+        session.playTestMode = this._playTestMode;
+
+        GetEventDispatcher().dispatchEvent(new RoomSessionEvent(RoomSessionEvent.STARTED, session));
+
+        this.setHandlers(session);
+
+        this.invalidateRoomSessionSnapshot();
+
+        return true;
+    }
+
+    public removeSession(id: number, openLandingView: boolean = true): void
+    {
+        const session = this.getSession(id);
+
+        if(!session) return;
+
+        // Only the quiet replacement of a session while the reconnect guard is up is held back. A user leaving for
+        // the hotel view, or a session that failed to start, always ends it.
+        if(this._isReconnecting && !openLandingView) return;
+
+        this._sessions.delete(this.getRoomId(id));
+
+        if(openLandingView)
+        {
+            this.clearPersistedRoom();
+            this.scheduleRoomIdClear();
+        }
+
+        GetEventDispatcher().dispatchEvent(new RoomSessionEvent(RoomSessionEvent.ENDED, session, openLandingView));
+
+        if(this._viewerSession === session) this._viewerSession = null;
+
+        this.invalidateRoomSessionSnapshot();
+    }
+
+    public sessionUpdate(id: number, type: string): void
+    {
+        const session = this.getSession(id);
+
+        if(!session)
+        {
+            return;
+        }
+
+        switch(type)
+        {
+            case RoomSessionHandler.RS_CONNECTED:
+                return;
+            case RoomSessionHandler.RS_READY:
+
+                if(this._isReconnecting)
+                {
+                    this._pendingDisconnect = null;
+
+                    if(this._savedPosX >= 0 && this._savedPosY >= 0)
+                    {
+                        GetCommunication().connection.send(new RoomUnitWalkComposer(this._savedPosX, this._savedPosY));
+                        this._savedPosX = -1;
+                        this._savedPosY = -1;
+                    }
+
+                    this.clearGuardTimer();
+                    this._reconnectGuardTimer = setTimeout(() =>
+                    {
+                        this._reconnectGuardTimer = null;
+
+                        this.endReconnectGuard();
+                    }, 3000);
+                }
+
+                return;
+            case RoomSessionHandler.RS_REFUSED:
+
+                // Outside a reconnect the navigator answers a refused entry itself.
+                if(this._isReconnecting) this._pendingDisconnect = id;
+
+                return;
+            case RoomSessionHandler.RS_DISCONNECTED:
+
+                if(this._isReconnecting)
+                {
+                    this._pendingDisconnect = id;
+
+                    return;
+                }
+
+                this.removeSession(id);
+                return;
+        }
+    }
+
+    public sessionReinitialize(fromRoomId: number, toRoomId: number): void
+    {
+        const existing = this.getSession(fromRoomId);
+
+        if(!existing) return;
+
+        this._sessions.delete(this.getRoomId(fromRoomId));
+
+        existing.reset(toRoomId);
+
+        this._sessions.set(this.getRoomId(toRoomId), existing);
+
+        this.cancelRoomIdClear();
+        this._lastRoomId = toRoomId;
+        this.persistRoom(toRoomId);
+
+        this.setHandlers(existing);
+    }
+
+    private getRoomId(id: number): string
+    {
+        return 'hard_coded_room_id';
+    }
+
+    /**
+     * AIR WiredMenuController.setPlayTestMode: the wired menu's playtest preference is put on the
+     * current room session and kept for every session started later.
+     */
+    public setPlayTestMode(enabled: boolean): void
+    {
+        this._playTestMode = !!enabled;
+
+        const session = this._viewerSession;
+
+        if(!session || (session.playTestMode === this._playTestMode)) return;
+
+        session.playTestMode = this._playTestMode;
+
+        this.invalidateRoomSessionSnapshot();
+    }
+
+    public get playTestMode(): boolean
+    {
+        return this._playTestMode;
+    }
+
+    public get viewerSession(): IRoomSession
+    {
+        return this._viewerSession;
+    }
+
+    public get isReconnecting(): boolean
+    {
+        return this._isReconnecting;
+    }
+}

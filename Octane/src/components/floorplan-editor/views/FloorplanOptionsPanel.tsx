@@ -1,0 +1,111 @@
+import { Dispatch, FC } from 'react';
+import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { LocalizeText, localizeWithFallback } from '../../../api';
+import { localizeOr } from '../state/localize';
+import { Base, LayoutAvatarImageView } from '../../../common';
+import { useUserDataSnapshot } from '../../../hooks/session/useSessionSnapshots';
+import { EntryDir, FloorplanAction, FloorplanState, ThicknessLevel } from '../state/types';
+import { BaseButton } from '../../../common/BaseButton';
+import { Hint } from '../../../common/Tooltip';
+import { NativeTextTree } from '../../../common/native-text/NativeTextTree';
+
+type Props = {
+    state: FloorplanState;
+    dispatch: Dispatch<FloorplanAction>;
+};
+
+const THICKNESS_LEVELS: ThicknessLevel[] = [0, 1, 2, 3];
+const THICKNESS_NAMES = ['thinnest', 'thin', 'normal', 'thick'] as const;
+
+/** Shown when the session has no figure yet. */
+const GHOST_FIGURE = 'hd-180-1.ch-210-66.lg-270-82.sh-290-80';
+
+const rotateDir = (dir: EntryDir, step: 1 | -1): EntryDir => ((dir + step + 8) & 7) as EntryDir;
+
+export const FloorplanOptionsPanel: FC<Props> = ({ state, dispatch }) => {
+    const userData = useUserDataSnapshot();
+    const figure = userData?.figure ?? '';
+    const gender = userData?.gender ?? '';
+    const setDir = (next: EntryDir) => dispatch({ type: 'SET_DOOR_DIR', dir: next, source: 'local' });
+    const setWall = (t: ThicknessLevel) => dispatch({ type: 'SET_THICKNESS', wall: t, source: 'local' });
+    const setFloor = (t: ThicknessLevel) => dispatch({ type: 'SET_THICKNESS', floor: t, source: 'local' });
+
+    return (
+        <NativeTextTree>
+            <>
+                <div className="fp-control-group is-centered" data-testid="floorplan-orientation">
+                    <div className="fp-group-label">{LocalizeText('floor.plan.editor.enter.direction')}</div>
+                    {/* AIR enterdirection_container: left turns the ghost avatar one step up (entryPointDir++), right one
+                        step back; the avatar in the middle faces the door direction. */}
+                    <div className="fp-orientation">
+                        <Base component={BaseButton} type="button" data-testid="entry-dir-prev" pointer title={localizeWithFallback('octane.floorplan_editor.rotate_left', 'Rotate left')} className="fp-orientation-step" onClick={() => setDir(rotateDir(state.door.dir, 1))}>
+                            <FaChevronLeft size={11} />
+                        </Base>
+                        <Base component={BaseButton} type="button"
+                            data-testid="entry-dir"
+                            data-dir={state.door.dir}
+                            pointer
+                            title={localizeWithFallback('octane.floorplan_editor.direction_dir_7_click_to_rotate', 'Direction %dir%/7 (click to rotate)', ['dir'], [String(state.door.dir)])}
+                            className="fp-orientation-avatar"
+                            onClick={() => setDir(rotateDir(state.door.dir, 1))}
+                        >
+                            <LayoutAvatarImageView figure={figure || GHOST_FIGURE} gender={gender || 'M'} direction={state.door.dir} fit small />
+                        </Base>
+                        <Base component={BaseButton} type="button" data-testid="entry-dir-next" pointer title={localizeWithFallback('octane.floorplan_editor.rotate_right', 'Rotate right')} className="fp-orientation-step" onClick={() => setDir(rotateDir(state.door.dir, -1))}>
+                            <FaChevronRight size={11} />
+                        </Base>
+                    </div>
+                </div>
+
+                <div className="fp-control-group is-centered is-right" data-testid="floorplan-appearance">
+                    <div className="fp-group-label">{localizeOr('floor.plan.editor.room.options', localizeOr('floor.plan.editor.appearance', 'Appearance'))}</div>
+                    <ThicknessStepper value={state.thickness.wall} onChange={setWall} testIdPrefix="wall-thickness" labelKeyPrefix="navigator.roomsettings.wall_thickness" />
+                    <ThicknessStepper value={state.thickness.floor} onChange={setFloor} testIdPrefix="floor-thickness" labelKeyPrefix="navigator.roomsettings.floor_thickness" />
+                </div>
+            </>
+        </NativeTextTree>
+    );
+};
+
+type StepperProps = {
+    value: ThicknessLevel;
+    onChange: (next: ThicknessLevel) => void;
+    testIdPrefix: string;
+    labelKeyPrefix: string;
+};
+
+/** Up steps to the next thicker level, down to the thinner one; the label cycles on click. */
+const ThicknessStepper: FC<StepperProps> = ({ value, onChange, testIdPrefix, labelKeyPrefix }) => {
+    const index = THICKNESS_LEVELS.indexOf(value);
+    const thinner = index > 0 ? THICKNESS_LEVELS[index - 1] : null;
+    const thicker = index < THICKNESS_LEVELS.length - 1 ? THICKNESS_LEVELS[index + 1] : null;
+    const label = LocalizeText(`${labelKeyPrefix}.${THICKNESS_NAMES[value]}`);
+
+    return (
+        <NativeTextTree>
+            <div className="fp-select" data-testid={testIdPrefix} data-value={value} title={label}>
+                <BaseButton className="cursor-pointer" data-testid={`${testIdPrefix}-label`} type="button" onClick={() => onChange(thicker ?? THICKNESS_LEVELS[0])}>
+                    {label}
+                </BaseButton>
+                <div className="fp-select-arrows">
+                    <Hint content={localizeWithFallback('octane.floorplan_editor.thicker', 'Thicker')}><BaseButton
+                        aria-disabled={thicker === null}
+                        aria-label={localizeWithFallback('octane.floorplan_editor.thicker', 'Thicker')}
+                        data-testid={`${testIdPrefix}-up`}
+                        className={`fp-select-arrow is-up ${thicker === null ? 'is-disabled' : ''}`}
+                        type="button"
+                        onClick={() => thicker !== null && onChange(thicker)}
+                    /></Hint>
+                    <Hint content={localizeWithFallback('octane.floorplan_editor.thinner', 'Thinner')}><BaseButton
+                        aria-disabled={thinner === null}
+                        aria-label={localizeWithFallback('octane.floorplan_editor.thinner', 'Thinner')}
+                        data-testid={`${testIdPrefix}-down`}
+                        className={`fp-select-arrow is-down ${thinner === null ? 'is-disabled' : ''}`}
+                        type="button"
+                        onClick={() => thinner !== null && onChange(thinner)}
+                    /></Hint>
+                </div>
+            </div>
+        </NativeTextTree>
+    );
+};

@@ -1,0 +1,121 @@
+import { CreateLinkEvent, GroupInformationComposer, GroupInformationEvent, GroupInformationParser, HabboGroupEntryData } from '@octane/renderer';
+import { FC, useEffect, useRef, useState } from 'react';
+import { LocalizeText, localizeWithFallback, SanitizeHtml, SendMessageComposer, ToggleFavoriteGroup } from '../../api';
+import groupPicture from '../../assets/images/groups/swf/ext_profile_grouppic.png';
+import groupBaseIcon from '../../assets/images/groups/swf/group_base_icon.png';
+import { Column, GridProps, LayoutBadgeImageView, LayoutGridItem } from '../../common';
+import { BaseButton } from '../../common/BaseButton';
+import { NativeTextTree } from '../../common/native-text/NativeTextTree';
+import { useMessageEvent } from '../../hooks';
+import { GroupInformationView } from '../groups/views/GroupInformationView';
+
+interface GroupsContainerViewProps extends GridProps {
+    itsMe: boolean;
+    groups: HabboGroupEntryData[];
+    onLeaveGroup: () => void;
+}
+
+/**
+ * AIR no_groups (343 x 214): the caption (the user's own or another's), the group picture, the explanation and the
+ * button that opens the navigator's group rooms (performGuildBaseSearch). AIR loads the picture from the image
+ * library (guilds/ext_profile_grouppic.png); hotels rarely have that file, so it ships with the client.
+ */
+const NoGroupsView: FC<{ itsMe: boolean }> = ({ itsMe }) => (
+    <NativeTextTree>
+        <Column fullHeight className="octane-extended-profile-groups octane-extended-profile-no-groups">
+            <div className="octane-extended-profile-no-groups__caption">
+                {itsMe
+                    ? localizeWithFallback('extendedprofile.nogroups.me', 'You are not a member of any group yet.')
+                    : localizeWithFallback('extendedprofile.nogroups.user', 'This user is not a member of any group.')}
+            </div>
+            <img alt="" className="octane-extended-profile-no-groups__picture" src={groupPicture} />
+            <div className="octane-extended-profile-no-groups__info">
+                {localizeWithFallback('extendedprofile.nogroups.info', 'Groups bring people with the same interests together.')}
+            </div>
+            <BaseButton className="octane-extended-profile-no-groups__view" onClick={() => CreateLinkEvent('navigator/search/hotel_view/group:')}>
+                <img alt="" src={groupBaseIcon} />
+                <span>{localizeWithFallback('extendedprofile.nogroups.viewgroups', 'View groups')}</span>
+            </BaseButton>
+        </Column>
+    </NativeTextTree>
+);
+
+export const GroupsContainerView: FC<GroupsContainerViewProps> = (props) => {
+    const { itsMe = null, groups = null, onLeaveGroup = null } = props;
+    const [selectedGroupId, setSelectedGroupId] = useState<number>(null);
+    const selectedGroupIdRef = useRef<number>(null);
+    selectedGroupIdRef.current = selectedGroupId;
+    const [groupInformation, setGroupInformation] = useState<GroupInformationParser>(null);
+
+    useMessageEvent<GroupInformationEvent>(GroupInformationEvent, (event) => {
+        const parser = event.getParser();
+
+        if (!selectedGroupId || selectedGroupId !== parser.id || parser.flag) return;
+
+        setGroupInformation(parser);
+    });
+
+    useEffect(() => {
+        if (!selectedGroupId) return;
+
+        SendMessageComposer(new GroupInformationComposer(selectedGroupId, false));
+    }, [selectedGroupId]);
+
+    useEffect(() => {
+        setGroupInformation(null);
+
+        if (groups.length > 0) {
+            // The same group again does not change the state, so the effect above will not ask: ask here, outside the
+            // updater, which may run twice (StrictMode).
+            if (selectedGroupIdRef.current === groups[0].groupId) {
+                SendMessageComposer(new GroupInformationComposer(groups[0].groupId, false));
+            }
+
+            setSelectedGroupId(groups[0].groupId);
+        }
+    }, [groups]);
+
+    if (!groups || !groups.length) return <NoGroupsView itsMe={!!itsMe} />;
+
+    return (
+        <NativeTextTree>
+            <div className="octane-extended-profile-groups">
+                <div className="octane-extended-profile-groups__sidebar">
+                    <div
+                        className="octane-extended-profile-groups__count"
+                        dangerouslySetInnerHTML={{ __html: SanitizeHtml(LocalizeText('extendedprofile.groups.count', ['count'], [groups.length.toString()])) }}
+                    />
+                    <div className="octane-extended-profile-groups__list">
+                        {groups.map((group, index) => {
+                            return (
+                                <LayoutGridItem
+                                    key={index}
+                                    className="octane-extended-profile-groups__item p-1"
+                                    itemActive={selectedGroupId === group.groupId}
+                                    overflow="unset"
+                                    onClick={() => setSelectedGroupId(group.groupId)}
+                                >
+                                    {itsMe && (
+                                        <i
+                                            className={
+                                                'absolute inset-e-0 top-0 z-20 octane-icon icon-group-' + (group.favourite ? 'favorite' : 'not-favorite')
+                                            }
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                ToggleFavoriteGroup(group);
+                                            }}
+                                        />
+                                    )}
+                                    <LayoutBadgeImageView badgeCode={group.badgeCode} isGroup={true} />
+                                </LayoutGridItem>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div className="octane-extended-profile-groups__details">
+                    {groupInformation && <GroupInformationView groupInformation={groupInformation} onClose={onLeaveGroup} />}
+                </div>
+            </div>
+        </NativeTextTree>
+    );
+};

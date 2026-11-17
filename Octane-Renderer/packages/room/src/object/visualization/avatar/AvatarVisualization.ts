@@ -1,0 +1,1793 @@
+import { AlphaTolerance, AvatarAction, AvatarGuideStatus, AvatarSetType, IAdvancedMap, IAvatarEffectListener, IAvatarImage, IAvatarImageListener, IGraphicAsset, IObjectVisualizationData, IRoomGeometry, IRoomObject, IRoomObjectModel, IRoomObjectSprite, IRoomObjectVariableFxEntry, RoomObjectSpriteData, RoomObjectSpriteType, RoomObjectVariable } from '@octane/api';
+import { GetAssetManager, getHalfSizeTexture, halfSizeOffset, halfSizePadding, isPixelArtTexture } from '@octane/assets';
+import { AdvancedMap, GetRenderer, Vector3d } from '@octane/utils';
+import { Container, RenderTexture, Sprite, Texture } from 'pixi.js';
+import { RoomObjectSpriteVisualization } from '../RoomObjectSpriteVisualization';
+import { RoomWindowReflectionState } from '../RoomWindowReflectionState';
+import { usesWiredHighlightCompositeSilhouette, WiredHighlightFilterCache } from '../WiredHighlightFilters';
+import { WiredHighlightSilhouette } from '../WiredHighlightSilhouette';
+import { AvatarVisualizationData } from './AvatarVisualizationData';
+import { ExpressionAdditionFactory, FloatingIdleZAddition, GameClickTargetAddition, GuideStatusBubbleAddition, HabbiconBubbleAddition, IAvatarAddition, MutedBubbleAddition, NumberBubbleAddition, TypingBubbleAddition, VariableFxStackAddition } from './additions';
+
+export class AvatarVisualization extends RoomObjectSpriteVisualization implements IAvatarImageListener, IAvatarEffectListener
+{
+    private static AVATAR: string = 'avatar';
+    private static FLOATING_IDLE_Z_ID: number = 1;
+    private static TYPING_BUBBLE_ID: number = 2;
+    private static EXPRESSION_ID: number = 3;
+    private static NUMBER_BUBBLE_ID: number = 4;
+    private static GAME_CLICK_TARGET_ID: number = 5;
+    private static MUTED_BUBBLE_ID: number = 6;
+    private static GUIDE_BUBBLE_ID: number = 7;
+    private static HABBICON_BUBBLE_ID: number = 8;
+    private static VARIABLE_FX_STACK_ID: number = 9;
+    private static OWN_USER_ID: number = 4;
+    private static UPDATE_TIME_INCREASER: number = 41;
+    // Like Habbo: purge cached actions unused for 60 s every 500 updates; the first purge is staggered.
+    private static INACTIVE_PURGE_INTERVAL: number = 500;
+    private static AVATAR_LAYER_ID: number = 0;
+    private static SHADOW_LAYER_ID: number = 1;
+    private static SNOWBOARDING_EFFECT: number = 97;
+    private static INITIAL_RESERVED_SPRITES: number = 2;
+    private static ANIMATION_FRAME_UPDATE_INTERVAL: number = 2;
+    private static DEFAULT_CANVAS_OFFSETS: number[] = [0, 0, 0];
+    private static MAX_EFFECT_CACHE: number = 2;
+    private static SPRITE_INDEX_AVATAR: number = 0;
+    private static BASE_Y_SCALE: number = 1000;
+    private static AVATAR_SPRITE_DEFAULT_DEPTH: number = -0.01;
+    private static AVATAR_OWN_DEPTH_ADJUST: number = 0.001;
+    private static AVATAR_SPRITE_LAYING_DEPTH: number = -0.409;
+    private static AVATAR_SPRITE_LAYING_INSIDE_DEPTH: number = -0.5;
+
+    protected _data: AvatarVisualizationData;
+
+    private _avatarImage: IAvatarImage;
+    private _updatesUntilPurge: number = 200 + Math.floor(Math.random() * 200);
+    private _cachedAvatars: IAdvancedMap<string, IAvatarImage>;
+    private _cachedAvatarEffects: IAdvancedMap<string, IAvatarImage>;
+    private _shadow: IGraphicAsset;
+    private _lastUpdate: number;
+    private _disposed: boolean;
+
+    private _figure: string;
+    private _isBlocked: boolean = false;
+    private _gender: string;
+    private _direction: number;
+    private _headDirection: number;
+    private _posture: string;
+    private _postureParameter: string;
+    private _canStandUp: boolean;
+    private _postureOffset: number;
+    private _verticalOffset: number;
+    private _angle: number;
+    private _headAngle: number;
+    private _angleCameraDirection: number;
+    private _talk: boolean;
+    private _expression: number;
+    private _sleep: boolean;
+    private _blink: boolean;
+    private _gesture: number;
+    private _sign: number;
+    private _highlightEnabled: boolean;
+    private _highlight: boolean;
+    private _wiredVisibility: number;
+    private _wiredClickThrough: boolean;
+    private _wiredHighlight: WiredHighlightFilterCache;
+    private _wiredHighlightSilhouette: WiredHighlightSilhouette = null;
+    private _spritesWithGlow: IRoomObjectSprite[] = null;
+    private _spritesWithGlowBase: IRoomObjectSprite[] = null;
+    private _spritesWithGlowLength: number = -1;
+    private _wiredHighlightBodyRevision: number = -1;
+    private _wiredHighlightBodyImage: IAvatarImage = null;
+    private _dance: number;
+    private _effect: number;
+    private _carryObject: number;
+    private _useObject: number;
+    private _ownUser: boolean;
+    private _habbiconTriggerSequence: number;
+    /** The habbicon bubble last started; kept after it finished so the same trigger is not shown twice. */
+    private _habbicon: HabbiconBubbleAddition = null;
+    private _habbiconSpinOffset: number;
+
+    private _isLaying: boolean;
+    private _layInside: boolean;
+    private _isAnimating: boolean;
+    private _extraSpritesStartIndex: number;
+    private _forcedAnimFrames: number;
+    private _updatesUntilFrameUpdate: number;
+
+    private _isAvatarReady: boolean;
+    private _needsUpdate: boolean;
+    private _geometryUpdateCounter: number;
+    private _reflectionVerticalOffset: number;
+    private _reflectionMirrorTextures: Map<number, RenderTexture>;
+    private _reflectionMirrors: Map<number, Texture>;
+
+    private _avatarTextureRenderVersion: number;
+    private _windowReflectionPushed: boolean;
+    private _lastReflectionPushedTexture: Texture;
+    private _lastReflectionPushedDirection: number;
+    private _lastReflectionPushedLocation: Vector3d;
+
+    private _additions: Map<number, IAvatarAddition>;
+
+    constructor()
+    {
+        super();
+
+        this._data = null;
+
+        this._avatarImage = null;
+        this._cachedAvatars = new AdvancedMap();
+        this._cachedAvatarEffects = new AdvancedMap();
+        this._shadow = null;
+        this._lastUpdate = -1000;
+        this._disposed = false;
+
+        this._figure = null;
+        this._gender = null;
+        this._direction = -1;
+        this._headDirection = -1;
+        this._posture = '';
+        this._postureParameter = '';
+        this._canStandUp = false;
+        this._postureOffset = 0;
+        this._verticalOffset = 0;
+        this._angle = -1;
+        this._headAngle = -1;
+        this._angleCameraDirection = NaN;
+        this._talk = false;
+        this._expression = 0;
+        this._sleep = false;
+        this._blink = false;
+        this._gesture = 0;
+        this._sign = -1;
+        this._highlightEnabled = false;
+        this._highlight = false;
+        this._wiredVisibility = 1;
+        this._wiredClickThrough = false;
+        this._wiredHighlight = new WiredHighlightFilterCache();
+        this._dance = 0;
+        this._effect = 0;
+        this._carryObject = 0;
+        this._useObject = 0;
+        this._ownUser = false;
+        this._habbiconTriggerSequence = 0;
+        this._habbiconSpinOffset = 0;
+
+        this._isLaying = false;
+        this._layInside = false;
+        this._isAnimating = false;
+        this._extraSpritesStartIndex = AvatarVisualization.INITIAL_RESERVED_SPRITES;
+        this._forcedAnimFrames = 0;
+        this._updatesUntilFrameUpdate = 0;
+
+        this._isAvatarReady = false;
+        this._needsUpdate = false;
+        this._geometryUpdateCounter = -1;
+        this._reflectionVerticalOffset = 0;
+        this._reflectionMirrorTextures = new Map();
+        this._reflectionMirrors = new Map();
+        this._avatarTextureRenderVersion = 0;
+        this._windowReflectionPushed = false;
+        this._lastReflectionPushedTexture = null;
+        this._lastReflectionPushedDirection = -1;
+        this._lastReflectionPushedLocation = new Vector3d();
+
+        this._additions = new Map();
+    }
+
+    public initialize(data: IObjectVisualizationData): boolean
+    {
+        if(!(data instanceof AvatarVisualizationData)) return false;
+
+        this._data = data;
+
+        this.createSprites(AvatarVisualization.INITIAL_RESERVED_SPRITES);
+
+        super.initialize(data);
+
+        return true;
+    }
+
+    public dispose(): void
+    {
+        if(this._disposed) return;
+
+        super.dispose();
+
+        this._wiredHighlightSilhouette?.dispose();
+        this._wiredHighlightSilhouette = null;
+        this._wiredHighlightBodyImage = null;
+        this._spritesWithGlow = null;
+        this._spritesWithGlowBase = null;
+
+        if(this._avatarImage) this._avatarImage.dispose();
+
+        if(this._cachedAvatars)
+        {
+            for(const avatar of this._cachedAvatars.getValues()) avatar && avatar.dispose();
+            this._cachedAvatars.reset();
+        }
+
+        if(this._cachedAvatarEffects)
+        {
+            for(const avatar of this._cachedAvatarEffects.getValues()) avatar && avatar.dispose();
+            this._cachedAvatarEffects.reset();
+        }
+
+        this.destroyMirrorTextures();
+
+        if(this.object) RoomWindowReflectionState.removeAvatar(this.object.id, this.object.model?.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID));
+
+        if(this._additions)
+        {
+            for(const addition of this._additions.values()) addition?.dispose();
+
+            this._additions.clear();
+        }
+
+        this._shadow = null;
+        this._disposed = true;
+    }
+
+    public update(geometry: IRoomGeometry, time: number, update: boolean, skipUpdate: boolean): void
+    {
+        if(!this.object || !geometry || !this._data) return;
+
+        if(time < (this._lastUpdate + AvatarVisualization.UPDATE_TIME_INCREASER)) return;
+
+        this._lastUpdate += AvatarVisualization.UPDATE_TIME_INCREASER;
+
+        if((this._lastUpdate + AvatarVisualization.UPDATE_TIME_INCREASER) < time) this._lastUpdate = (time - AvatarVisualization.UPDATE_TIME_INCREASER);
+
+        if(--this._updatesUntilPurge <= 0)
+        {
+            this._updatesUntilPurge = AvatarVisualization.INACTIVE_PURGE_INTERVAL;
+            this._avatarImage?.disposeInactiveActions();
+        }
+
+        const model = this.object.model;
+        const scale = geometry.scale;
+        const effect = this._effect;
+
+        let didScaleUpdate = false;
+        let didEffectUpdate = false;
+        let otherUpdate = false;
+        let objectUpdate = false;
+
+        const updateModel = this.updateModel(model, scale);
+
+        if((updateModel || (scale !== this._scale)) || !this._avatarImage)
+        {
+            if(scale !== this._scale)
+            {
+                didScaleUpdate = true;
+
+                this.updateScale(scale);
+            }
+
+            if(effect !== this._effect) didEffectUpdate = true;
+
+            if(didScaleUpdate || !this._avatarImage || didEffectUpdate)
+            {
+                this._avatarImage = this.createAvatarImage(scale, this._effect);
+
+                if(!this._avatarImage) return;
+
+                otherUpdate = true;
+
+                const sprite = this.getSprite(AvatarVisualization.AVATAR_LAYER_ID);
+
+                if((sprite && this._avatarImage) && this._avatarImage.isPlaceholder())
+                {
+                    sprite.alpha = 150;
+                }
+
+                else if(sprite)
+                {
+                    sprite.alpha = 255;
+                }
+            }
+
+            if(!this._avatarImage) return;
+
+            if(didEffectUpdate && this._avatarImage.animationHasResetOnToggle) this._avatarImage.resetAnimationFrameCounter();
+
+            this.updateShadow(scale);
+
+            objectUpdate = this.updateObject(this.object, geometry, update, true);
+
+            this.processActionsForAvatar(this._avatarImage);
+
+            if(this._additions)
+            {
+                let index = this._extraSpritesStartIndex;
+
+                for(const addition of this._additions.values())
+                {
+                    addition.update(this.getSprite(index++), scale);
+                }
+            }
+
+            this._scale = scale;
+        }
+        else
+        {
+            objectUpdate = this.updateObject(this.object, geometry, update);
+        }
+
+        if(this._additions)
+        {
+            let index = this._extraSpritesStartIndex;
+
+            for(const addition of this._additions.values())
+            {
+                if(addition.animate(this.getSprite(index++))) this.updateSpriteCounter++;
+            }
+        }
+
+        const update1 = (objectUpdate || updateModel || didScaleUpdate);
+        const update2 = ((this._isAnimating || (this._forcedAnimFrames > 0)) && update);
+
+        if(update1) this._forcedAnimFrames = AvatarVisualization.ANIMATION_FRAME_UPDATE_INTERVAL;
+
+        if(update1 || update2)
+        {
+            this.updateSpriteCounter++;
+
+            this._forcedAnimFrames--;
+            this._updatesUntilFrameUpdate--;
+
+            if((((this._updatesUntilFrameUpdate <= 0) || didScaleUpdate) || updateModel) || otherUpdate)
+            {
+                this._avatarImage.updateAnimationByFrames(1);
+
+                this._updatesUntilFrameUpdate = AvatarVisualization.ANIMATION_FRAME_UPDATE_INTERVAL;
+            }
+            else
+            {
+                this.updateWindowReflectionSource(true);
+
+                return;
+            }
+
+            let canvasOffsets = this._avatarImage.getCanvasOffsets();
+
+            if(!canvasOffsets || (canvasOffsets.length < 3)) canvasOffsets = AvatarVisualization.DEFAULT_CANVAS_OFFSETS;
+
+            const sprite = this.getSprite(AvatarVisualization.SPRITE_INDEX_AVATAR);
+            if(sprite)
+            {
+                const highlightEnabled = ((this.object.model.getValue<number>(RoomObjectVariable.FIGURE_HIGHLIGHT_ENABLE) === 1) && (this.object.model.getValue<number>(RoomObjectVariable.FIGURE_HIGHLIGHT) === 1));
+
+                this.renderMirrorTextures(highlightEnabled);
+
+                const avatarImage = this._avatarImage.processAsTexture(AvatarSetType.FULL, highlightEnabled);
+
+                if(!this._isAnimating && this._avatarImage.isAnimating()) this._isAnimating = true;
+
+                if(avatarImage)
+                {
+                    sprite.texture = avatarImage;
+                    this._avatarTextureRenderVersion++;
+
+                    if(highlightEnabled)
+                    {
+                        // sprite.filters  = [
+                        //     new GlowFilter({
+                        //         color: 0xFFFFFF,
+                        //         distance: 6
+                        //     })
+                        // ];
+                    }
+                }
+
+                if(sprite.texture)
+                {
+                    this.applyWiredEffects(sprite, this._avatarImage.isPlaceholder());
+
+                    sprite.offsetX = ((((-1 * scale) / 2) + canvasOffsets[0]) - ((sprite.texture.width - scale) / 2));
+                    sprite.offsetY = (((-(sprite.texture.height) + (scale / 4)) + canvasOffsets[1]) + this._postureOffset);
+                }
+
+                if(this._isLaying)
+                {
+                    sprite.relativeDepth = this._layInside
+                        ? AvatarVisualization.AVATAR_SPRITE_LAYING_INSIDE_DEPTH
+                        : (AvatarVisualization.AVATAR_SPRITE_LAYING_DEPTH + canvasOffsets[2]);
+                }
+                else
+                {
+                    sprite.relativeDepth = (AvatarVisualization.AVATAR_SPRITE_DEFAULT_DEPTH + canvasOffsets[2]);
+                }
+
+                if(this._ownUser)
+                {
+                    sprite.relativeDepth -= AvatarVisualization.AVATAR_OWN_DEPTH_ADJUST;
+                    sprite.spriteType = RoomObjectSpriteType.AVATAR_OWN;
+                }
+                else
+                {
+                    sprite.spriteType = RoomObjectSpriteType.AVATAR;
+                }
+            }
+
+            const typingBubble = this.getAddition(AvatarVisualization.TYPING_BUBBLE_ID) as TypingBubbleAddition;
+
+            if(typingBubble)
+            {
+                if(!this._isLaying)
+                {
+                    typingBubble.relativeDepth = ((AvatarVisualization.AVATAR_SPRITE_DEFAULT_DEPTH - 0.01) + canvasOffsets[2]);
+                }
+                else
+                {
+                    typingBubble.relativeDepth = ((AvatarVisualization.AVATAR_SPRITE_LAYING_DEPTH - 0.01) + canvasOffsets[2]);
+                }
+            }
+
+            this._isAnimating = this._avatarImage.isAnimating();
+
+            let spriteIndex = AvatarVisualization.INITIAL_RESERVED_SPRITES;
+            const direction = this._avatarImage.getDirection();
+
+            for(const spriteData of this._avatarImage.getSprites())
+            {
+                if(spriteData.id === AvatarVisualization.AVATAR)
+                {
+                    const sprite = this.getSprite(AvatarVisualization.SPRITE_INDEX_AVATAR);
+
+                    if(sprite)
+                    {
+                        const layerData = this._avatarImage.getLayerData(spriteData);
+
+                        let offsetX = spriteData.getDirectionOffsetX(direction);
+                        let offsetY = spriteData.getDirectionOffsetY(direction);
+
+                        if(layerData)
+                        {
+                            offsetX += layerData.dx;
+                            offsetY += layerData.dy;
+                        }
+
+                        if(scale < 48)
+                        {
+                            offsetX /= 2;
+                            offsetY /= 2;
+                        }
+
+                        if(!this._canStandUp)
+                        {
+                            sprite.offsetX += offsetX;
+                            sprite.offsetY += offsetY;
+                        }
+                    }
+                }
+                else
+                {
+                    const sprite = this.getSprite(spriteIndex++);
+
+                    if(sprite)
+                    {
+                        sprite.alphaTolerance = AlphaTolerance.MATCH_NOTHING;
+                        sprite.visible = true;
+
+                        const layerData = this._avatarImage.getLayerData(spriteData);
+
+                        let frameNumber = 0;
+                        let offsetX = spriteData.getDirectionOffsetX(direction);
+                        let offsetY = spriteData.getDirectionOffsetY(direction);
+                        const offsetZ = spriteData.getDirectionOffsetZ(direction);
+                        let dd = 0;
+
+                        if(spriteData.hasDirections) dd = direction;
+
+                        if(layerData)
+                        {
+                            frameNumber = layerData.animationFrame;
+                            offsetX += layerData.dx;
+                            offsetY += layerData.dy;
+                            dd += layerData.dd;
+                        }
+
+                        if(scale < 48)
+                        {
+                            offsetX /= 2;
+                            offsetY /= 2;
+                        }
+
+                        if(dd < 0) dd += 8;
+                        else
+                        {
+                            if(dd > 7) dd -= 8;
+                        }
+
+                        const assetName = ((((((this._avatarImage.getScale() + '_') + spriteData.member) + '_') + dd) + '_') + frameNumber);
+
+                        // Through the avatar's aliases, as AIR does: effects such as the hoverboard draw directions 4-7
+                        // from the art of 0-3.
+                        const asset = this._avatarImage.getAsset(assetName);
+                        // .hab effects ship only large art: draw it as a real half-size sprite when zoomed out.
+                        const largeAsset = ((!asset && (scale < 48)) ? this._avatarImage.getAsset(('h_' + spriteData.member + '_' + dd + '_' + frameNumber)) : null);
+                        const halfTexture = (isPixelArtTexture(largeAsset?.texture) ? getHalfSizeTexture(largeAsset.texture, halfSizePadding(largeAsset.offsetX), halfSizePadding(largeAsset.offsetY)) : null);
+
+                        if(!asset && !halfTexture)
+                        {
+                            // Official: an effect sprite without art for this frame is cleared, not left showing the previous effect.
+                            sprite.texture = Texture.EMPTY;
+                            sprite.visible = false;
+
+                            continue;
+                        }
+
+                        if(asset)
+                        {
+                            sprite.texture = asset.texture;
+                            sprite.offsetX = ((asset.offsetX - (scale / 2)) + offsetX);
+                            sprite.offsetY = (asset.offsetY + offsetY);
+                            sprite.flipH = asset.flipH;
+                        }
+                        else
+                        {
+                            sprite.texture = halfTexture;
+                            sprite.offsetX = ((halfSizeOffset(largeAsset.offsetX, largeAsset.flipH) - (scale / 2)) + offsetX);
+                            sprite.offsetY = (halfSizeOffset(largeAsset.offsetY, false) + offsetY);
+                            sprite.flipH = largeAsset.flipH;
+                        }
+
+                        if(spriteData.hasStaticY)
+                        {
+                            sprite.offsetY += ((this._verticalOffset * scale) / (2 * AvatarVisualization.BASE_Y_SCALE));
+                        }
+                        else
+                        {
+                            sprite.offsetY += this._postureOffset;
+                        }
+
+                        if(this._isLaying)
+                        {
+                            sprite.relativeDepth = (AvatarVisualization.AVATAR_SPRITE_LAYING_DEPTH - ((0.001 * this.totalSprites) * offsetZ));
+                        }
+                        else
+                        {
+                            sprite.relativeDepth = (AvatarVisualization.AVATAR_SPRITE_DEFAULT_DEPTH - ((0.001 * this.totalSprites) * offsetZ));
+                        }
+
+                        if(spriteData.ink === 33) sprite.blendMode = 'add';
+                        else sprite.blendMode = 'normal';
+                    }
+                }
+            }
+
+            this.updateWiredHighlightSprites();
+
+            const avatarSprite = this.getSprite(AvatarVisualization.SPRITE_INDEX_AVATAR);
+
+            if(avatarSprite?.texture)
+            {
+                const baseOffsetY = (-(avatarSprite.texture.height) + (scale / 4));
+
+                this._reflectionVerticalOffset = avatarSprite.offsetY - baseOffsetY;
+            }
+
+            this.updateWindowReflectionSource();
+        }
+    }
+
+    private createAvatarImage(scale: number, effectId: number): IAvatarImage
+    {
+        // Like Habbo, a blocked user is an anonymous ghost: the placeholder silhouette, no effects.
+        if(this._isBlocked)
+        {
+            const blockedName = 'blockedAvatarImage' + scale.toString();
+            let blockedImage = this._cachedAvatars.getValue(blockedName);
+
+            if(!blockedImage)
+            {
+                blockedImage = this._data.createBlockedAvatarImage(scale);
+
+                if(blockedImage) this._cachedAvatars.add(blockedName, blockedImage);
+            }
+
+            return blockedImage;
+        }
+
+        let cachedImage: IAvatarImage = null;
+        let imageName = 'avatarImage' + scale.toString();
+
+        if(!effectId)
+        {
+            cachedImage = this._cachedAvatars.getValue(imageName);
+        }
+        else
+        {
+            imageName += '-' + effectId;
+
+            cachedImage = this._cachedAvatarEffects.getValue(imageName);
+        }
+
+        if(!cachedImage)
+        {
+            cachedImage = this._data.createAvatarImage(this._figure, scale, this._gender, this, this);
+
+            if(cachedImage)
+            {
+                if(!effectId)
+                {
+                    this._cachedAvatars.add(imageName, cachedImage);
+                }
+
+                else
+                {
+                    if(this._cachedAvatarEffects.length >= AvatarVisualization.MAX_EFFECT_CACHE)
+                    {
+                        for(let i = 0; i < this._cachedAvatarEffects.length; i++)
+                        {
+                            const key = this._cachedAvatarEffects.getKey(i);
+                            const candidate = this._cachedAvatarEffects.getValue(key);
+
+                            if(candidate === this._avatarImage) continue;
+
+                            this._cachedAvatarEffects.remove(key);
+
+                            if(candidate) candidate.dispose();
+
+                            break;
+                        }
+                    }
+
+                    this._cachedAvatarEffects.add(imageName, cachedImage);
+                }
+            }
+        }
+
+        return cachedImage;
+    }
+
+    protected updateObject(object: IRoomObject, geometry: IRoomGeometry, update: boolean, force: boolean = false): boolean
+    {
+        if((!force && (this.updateObjectCounter === object.updateCounter)) && (this._geometryUpdateCounter === geometry.updateId)) return false;
+
+        let direction = (object.getDirection().x - geometry.direction.x);
+        let headDirection = (this._headDirection - geometry.direction.x);
+
+        this._angleCameraDirection = geometry.direction.x;
+
+        if(this._posture === 'float') headDirection = direction;
+
+        direction = (((direction % 360) + 360) % 360);
+        headDirection = (((headDirection % 360) + 360) % 360);
+
+        if((this._posture === 'sit') && this._canStandUp)
+        {
+            direction -= ((direction % 90) - 45);
+            headDirection -= ((headDirection % 90) - 45);
+        }
+
+        if(this._habbiconSpinOffset !== 0)
+        {
+            direction = this.normalizeDirectionAngle(direction + this._habbiconSpinOffset);
+            headDirection = this.normalizeDirectionAngle(headDirection + this._habbiconSpinOffset);
+        }
+
+        if((direction !== this._angle) || force)
+        {
+            update = true;
+
+            this._angle = direction;
+
+            direction = (direction - (135 - 22.5));
+            direction = ((direction + 360) % 360);
+
+            this._avatarImage.setDirectionAngle(AvatarSetType.FULL, direction);
+        }
+
+        if((headDirection !== this._headAngle) || force)
+        {
+            update = true;
+
+            this._headAngle = headDirection;
+
+            if(this._headAngle !== this._angle)
+            {
+                headDirection = (headDirection - (135 - 22.5));
+                headDirection = ((headDirection + 360) % 360);
+
+                this._avatarImage.setDirectionAngle(AvatarSetType.HEAD, headDirection);
+            }
+        }
+
+        this._geometryUpdateCounter = geometry.updateId;
+
+        this.updateObjectCounter = this.object.updateCounter;
+
+        return update;
+    }
+
+    protected updateModel(model: IRoomObjectModel, scale: number): boolean
+    {
+        if(!model) return false;
+
+        if(this.updateModelCounter === model.updateCounter) return false;
+
+        let needsUpdate = false;
+
+        const talk = (model.getValue<number>(RoomObjectVariable.FIGURE_TALK) > 0);
+
+        if(talk !== this._talk)
+        {
+            this._talk = talk;
+
+            needsUpdate = true;
+        }
+
+        const expression = model.getValue<number>(RoomObjectVariable.FIGURE_EXPRESSION);
+
+        if(expression !== this._expression)
+        {
+            this._expression = expression;
+
+            needsUpdate = true;
+        }
+
+        const sleep = (model.getValue<number>(RoomObjectVariable.FIGURE_SLEEP) > 0);
+
+        if(sleep !== this._sleep)
+        {
+            this._sleep = sleep;
+
+            needsUpdate = true;
+        }
+
+        const blink = (model.getValue<number>(RoomObjectVariable.FIGURE_BLINK) > 0);
+
+        if(blink !== this._blink)
+        {
+            this._blink = blink;
+
+            needsUpdate = true;
+        }
+
+        const gesture = (model.getValue<number>(RoomObjectVariable.FIGURE_GESTURE) || 0);
+
+        if(gesture !== this._gesture)
+        {
+            this._gesture = gesture;
+
+            needsUpdate = true;
+        }
+
+        const posture = model.getValue<string>(RoomObjectVariable.FIGURE_POSTURE);
+
+        if(posture !== this._posture)
+        {
+            this._posture = posture;
+
+            needsUpdate = true;
+        }
+
+        const postureParameter = model.getValue<string>(RoomObjectVariable.FIGURE_POSTURE_PARAMETER);
+
+        if(postureParameter !== this._postureParameter)
+        {
+            this._postureParameter = postureParameter;
+
+            needsUpdate = true;
+        }
+
+        const canStandUp = model.getValue<boolean>(RoomObjectVariable.FIGURE_CAN_STAND_UP);
+
+        if(canStandUp !== this._canStandUp)
+        {
+            this._canStandUp = canStandUp;
+
+            needsUpdate = true;
+        }
+
+        const verticalOffset = (model.getValue<number>(RoomObjectVariable.FIGURE_VERTICAL_OFFSET) * AvatarVisualization.BASE_Y_SCALE);
+
+        if(verticalOffset !== this._verticalOffset)
+        {
+            this._verticalOffset = verticalOffset;
+
+            needsUpdate = true;
+        }
+
+        const dance = (model.getValue<number>(RoomObjectVariable.FIGURE_DANCE) || 0);
+
+        if(dance !== this._dance)
+        {
+            this._dance = dance;
+
+            needsUpdate = true;
+        }
+
+        const effect = (model.getValue<number>(RoomObjectVariable.FIGURE_EFFECT) || 0);
+
+        if(effect !== this._effect)
+        {
+            this._effect = effect;
+
+            needsUpdate = true;
+        }
+
+        const carryObject = (model.getValue<number>(RoomObjectVariable.FIGURE_CARRY_OBJECT) || 0);
+
+        if(carryObject !== this._carryObject)
+        {
+            this._carryObject = carryObject;
+
+            needsUpdate = true;
+        }
+
+        const useObject = (model.getValue<number>(RoomObjectVariable.FIGURE_USE_OBJECT) || 0);
+
+        if(useObject !== this._useObject)
+        {
+            this._useObject = useObject;
+
+            needsUpdate = true;
+        }
+
+        const headDirection = model.getValue<number>(RoomObjectVariable.HEAD_DIRECTION);
+
+        if(headDirection !== this._headDirection)
+        {
+            this._headDirection = headDirection;
+
+            needsUpdate = true;
+        }
+
+        if((this._carryObject > 0) && (useObject > 0))
+        {
+            if(this._useObject !== this._carryObject)
+            {
+                this._useObject = this._carryObject;
+
+                needsUpdate = true;
+            }
+        }
+        else
+        {
+            if(this._useObject !== 0)
+            {
+                this._useObject = 0;
+
+                needsUpdate = true;
+            }
+        }
+
+        let idleAddition = this.getAddition(AvatarVisualization.FLOATING_IDLE_Z_ID);
+
+        if(this._sleep)
+        {
+            if(!idleAddition) idleAddition = this.addAddition(new FloatingIdleZAddition(AvatarVisualization.FLOATING_IDLE_Z_ID, this));
+
+            needsUpdate = true;
+        }
+        else
+        {
+            if(idleAddition) this.removeAddition(AvatarVisualization.FLOATING_IDLE_Z_ID);
+        }
+
+        const isMuted = (model.getValue<number>(RoomObjectVariable.FIGURE_IS_MUTED) > 0);
+
+        let mutedAddition = this.getAddition(AvatarVisualization.MUTED_BUBBLE_ID);
+
+        if(isMuted)
+        {
+            if(!mutedAddition) mutedAddition = this.addAddition(new MutedBubbleAddition(AvatarVisualization.MUTED_BUBBLE_ID, this));
+
+            needsUpdate = true;
+        }
+        else
+        {
+            if(mutedAddition)
+            {
+                this.removeAddition(AvatarVisualization.MUTED_BUBBLE_ID);
+
+                needsUpdate = true;
+            }
+
+            const isTyping = (model.getValue<number>(RoomObjectVariable.FIGURE_IS_TYPING) > 0);
+
+            let typingAddition = this.getAddition(AvatarVisualization.TYPING_BUBBLE_ID);
+
+            if(isTyping)
+            {
+                if(!typingAddition) typingAddition = this.addAddition(new TypingBubbleAddition(AvatarVisualization.TYPING_BUBBLE_ID, this));
+
+                needsUpdate = true;
+            }
+            else
+            {
+                if(typingAddition)
+                {
+                    this.removeAddition(AvatarVisualization.TYPING_BUBBLE_ID);
+
+                    needsUpdate = true;
+                }
+            }
+        }
+
+        const guideStatusValue = (model.getValue<number>(RoomObjectVariable.FIGURE_GUIDE_STATUS) || 0);
+
+        if(guideStatusValue !== AvatarGuideStatus.NONE)
+        {
+            this.removeAddition(AvatarVisualization.GUIDE_BUBBLE_ID);
+            this.addAddition(new GuideStatusBubbleAddition(AvatarVisualization.GUIDE_BUBBLE_ID, this, guideStatusValue));
+
+            needsUpdate = true;
+        }
+        else
+        {
+            if(this.getAddition(AvatarVisualization.GUIDE_BUBBLE_ID))
+            {
+                this.removeAddition(AvatarVisualization.GUIDE_BUBBLE_ID);
+
+                needsUpdate = true;
+            }
+        }
+
+        const isPlayingGame = (model.getValue<number>(RoomObjectVariable.FIGURE_IS_PLAYING_GAME) > 0);
+
+        let gameClickAddition = this.getAddition(AvatarVisualization.GAME_CLICK_TARGET_ID);
+
+        if(isPlayingGame)
+        {
+            if(!gameClickAddition) gameClickAddition = this.addAddition(new GameClickTargetAddition(AvatarVisualization.GAME_CLICK_TARGET_ID));
+
+            needsUpdate = true;
+        }
+        else
+        {
+            if(gameClickAddition) this.removeAddition(AvatarVisualization.GAME_CLICK_TARGET_ID);
+        }
+
+        const numberValue = model.getValue<number>(RoomObjectVariable.FIGURE_NUMBER_VALUE);
+
+        let numberAddition = this.getAddition(AvatarVisualization.NUMBER_BUBBLE_ID);
+
+        if(numberValue > 0)
+        {
+            if(!numberAddition) numberAddition = this.addAddition(new NumberBubbleAddition(AvatarVisualization.NUMBER_BUBBLE_ID, numberValue, this));
+
+            needsUpdate = true;
+        }
+        else
+        {
+            if(numberAddition) this.removeAddition(AvatarVisualization.NUMBER_BUBBLE_ID);
+        }
+
+        const habbiconId = (model.getValue<number>(RoomObjectVariable.FIGURE_HABBICON) || 0);
+        const habbiconTriggerSequence = (model.getValue<number>(RoomObjectVariable.FIGURE_HABBICON_TRIGGER_SEQUENCE) || 0);
+        const habbiconSpinOffset = (model.getValue<number>(RoomObjectVariable.FIGURE_HABBICON_SPIN_OFFSET) || 0);
+        const variableFx = model.getValue<IRoomObjectVariableFxEntry[]>(RoomObjectVariable.VARIABLE_FX_STACK);
+        let stackAddition = this.getAddition(AvatarVisualization.VARIABLE_FX_STACK_ID) as VariableFxStackAddition;
+
+        // AIR stacks the habbicon at layer 100 of the same additions stack as the variable fx.
+        if(habbiconId > 0)
+        {
+            if(!this._habbicon || (this._habbicon.habbiconId !== habbiconId) || (habbiconTriggerSequence !== this._habbiconTriggerSequence))
+            {
+                if(!stackAddition)
+                {
+                    stackAddition = this.addAddition(new VariableFxStackAddition(AvatarVisualization.VARIABLE_FX_STACK_ID, this)) as VariableFxStackAddition;
+                }
+
+                this._habbicon = new HabbiconBubbleAddition(AvatarVisualization.HABBICON_BUBBLE_ID, habbiconId, habbiconTriggerSequence, this);
+                this._habbiconTriggerSequence = habbiconTriggerSequence;
+
+                stackAddition?.setHabbicon(this._habbicon);
+                needsUpdate = true;
+            }
+        }
+        else if(this._habbicon)
+        {
+            stackAddition?.setHabbicon(null);
+            this._habbicon = null;
+            needsUpdate = true;
+        }
+
+        if(habbiconSpinOffset !== this._habbiconSpinOffset)
+        {
+            this._habbiconSpinOffset = habbiconSpinOffset;
+            needsUpdate = true;
+        }
+
+        // The wired variable fx the client set; the stack fades out what is no longer sent.
+        if(variableFx)
+        {
+            if(!stackAddition)
+            {
+                stackAddition = this.addAddition(new VariableFxStackAddition(AvatarVisualization.VARIABLE_FX_STACK_ID, this)) as VariableFxStackAddition;
+                needsUpdate = true;
+            }
+
+            if(stackAddition?.setEntries(variableFx)) needsUpdate = true;
+        }
+        else if(stackAddition)
+        {
+            if(!this._habbicon || this._habbicon.isFinished)
+            {
+                this.removeAddition(AvatarVisualization.VARIABLE_FX_STACK_ID);
+            }
+            else if(stackAddition.setEntries([]))
+            {
+                needsUpdate = true;
+            }
+        }
+
+        let expressionAddition = this.getAddition(AvatarVisualization.EXPRESSION_ID);
+
+        if(this._expression > 0)
+        {
+            if(!expressionAddition)
+            {
+                expressionAddition = ExpressionAdditionFactory.getExpressionAddition(AvatarVisualization.EXPRESSION_ID, this._expression, this);
+
+                if(expressionAddition) this.addAddition(expressionAddition);
+            }
+        }
+        else
+        {
+            if(expressionAddition) this.removeAddition(AvatarVisualization.EXPRESSION_ID);
+        }
+
+        this.updateScale(scale);
+
+        const gender = model.getValue<string>(RoomObjectVariable.GENDER);
+
+        if(gender !== this._gender)
+        {
+            this._gender = gender;
+
+            needsUpdate = true;
+        }
+
+        if(this.updateFigure(model.getValue<string>(RoomObjectVariable.FIGURE))) needsUpdate = true;
+
+        const isBlocked = (model.getValue<number>(RoomObjectVariable.FIGURE_IS_BLOCKED) > 0);
+
+        if(isBlocked !== this._isBlocked)
+        {
+            this._isBlocked = isBlocked;
+            this.clearAvatar();
+
+            needsUpdate = true;
+        }
+
+        let sign = model.getValue<number>(RoomObjectVariable.FIGURE_SIGN);
+
+        if(sign === null) sign = -1;
+
+        if(this._sign !== sign)
+        {
+            this._sign = sign;
+
+            needsUpdate = true;
+        }
+
+        const highlightEnabled = (model.getValue<number>(RoomObjectVariable.FIGURE_HIGHLIGHT_ENABLE) > 0);
+
+        if(highlightEnabled !== this._highlightEnabled)
+        {
+            this._highlightEnabled = highlightEnabled;
+
+            needsUpdate = true;
+        }
+
+        if(this._highlightEnabled)
+        {
+            const highlight = (model.getValue<number>(RoomObjectVariable.FIGURE_HIGHLIGHT) > 0);
+
+            if(highlight !== this._highlight)
+            {
+                this._highlight = highlight;
+
+                needsUpdate = true;
+            }
+        }
+
+        const wiredTransparency = model.getValue<number>(RoomObjectVariable.FURNITURE_WIRED_TRANSPARENCY);
+        const wiredVisibility = isNaN(wiredTransparency) ? 1 : (1 - (Math.max(0, Math.min(100, wiredTransparency)) / 100));
+        const wiredClickThrough = (model.getValue<number>(RoomObjectVariable.FURNITURE_WIRED_CLICK_THROUGH) > 0);
+
+        if((wiredVisibility !== this._wiredVisibility) || (wiredClickThrough !== this._wiredClickThrough))
+        {
+            this._wiredVisibility = wiredVisibility;
+            this._wiredClickThrough = wiredClickThrough;
+
+            needsUpdate = true;
+        }
+
+        const highlightType = model.getValue<number>(RoomObjectVariable.FURNITURE_WIRED_HIGHLIGHT_TYPE);
+        const highlightStrength = model.getValue<number>(RoomObjectVariable.FURNITURE_WIRED_HIGHLIGHT_STRENGTH);
+        const highlightColor = model.getValue<number>(RoomObjectVariable.FURNITURE_WIRED_HIGHLIGHT_COLOR);
+
+        if(this._wiredHighlight.update(isNaN(highlightType) ? 0 : highlightType, highlightStrength, isNaN(highlightColor) ? 0xFFFFFF : highlightColor)) needsUpdate = true;
+
+        const ownUser = (model.getValue<number>(RoomObjectVariable.OWN_USER) > 0);
+
+        if(ownUser !== this._ownUser)
+        {
+            this._ownUser = ownUser;
+
+            needsUpdate = true;
+        }
+
+        this.updateModelCounter = model.updateCounter;
+
+        return needsUpdate;
+    }
+
+    // Wired transparency, click-through and highlight apply to the avatar body sprite (AIR AvatarVisualization L530-545, L1546-1600).
+    private applyWiredEffects(sprite: IRoomObjectSprite, placeholder: boolean): void
+    {
+        sprite.alpha = (placeholder ? 150 : 255) * this._wiredVisibility;
+        sprite.alphaTolerance = this._wiredClickThrough ? AlphaTolerance.MATCH_NOTHING : AlphaTolerance.MATCH_OPAQUE_PIXELS;
+
+        // Outline, soft glow and neon aura are drawn behind the avatar (updateWiredHighlightSprites).
+        const highlightFilters = usesWiredHighlightCompositeSilhouette(this._wiredHighlight.type) ? null : this._wiredHighlight.filters;
+
+        if((sprite.filters || null) !== highlightFilters) sprite.filters = highlightFilters;
+    }
+
+    /**
+     * AIR updateWiredHighlightSprites: the colour styles go on every sprite but the shadow (and never on an additive
+     * one); outline, soft glow and neon aura are drawn once behind the body and its effect sprites. The body is
+     * redrawn in place, so the glow is rebuilt when the avatar image says it drew a new frame (a revision it does not
+     * report counts as new); an unchanged frame keeps the glow it has.
+     */
+    private updateWiredHighlightSprites(): void
+    {
+        const filters = this._wiredHighlight.filters;
+        const composite = !!filters && usesWiredHighlightCompositeSilhouette(this._wiredHighlight.type);
+        const sources: IRoomObjectSprite[] = [];
+
+        for(let index = 0; index < this._extraSpritesStartIndex; index++)
+        {
+            if(index === AvatarVisualization.SHADOW_LAYER_ID) continue;
+
+            const sprite = this.getSprite(index);
+
+            if(!sprite) continue;
+
+            if(index !== AvatarVisualization.SPRITE_INDEX_AVATAR)
+            {
+                const layerFilters = (composite || (sprite.blendMode === 'add')) ? null : filters;
+
+                if((sprite.filters || null) !== layerFilters) sprite.filters = layerFilters;
+            }
+
+            sources.push(sprite);
+        }
+
+        if(!composite)
+        {
+            if(this._wiredHighlightSilhouette)
+            {
+                this._wiredHighlightSilhouette.dispose();
+                this._wiredHighlightSilhouette = null;
+                this._wiredHighlightBodyImage = null;
+                this.updateSpriteCounter++;
+            }
+
+            return;
+        }
+
+        if(!this._wiredHighlightSilhouette) this._wiredHighlightSilhouette = new WiredHighlightSilhouette();
+
+        const body = this.getSprite(AvatarVisualization.SPRITE_INDEX_AVATAR);
+        const bodyRevision = this._avatarImage?.textureRevision;
+        const bodyRedrawn = (bodyRevision === undefined) || (this._avatarImage !== this._wiredHighlightBodyImage) || (bodyRevision !== this._wiredHighlightBodyRevision);
+
+        this._wiredHighlightBodyImage = this._avatarImage;
+        this._wiredHighlightBodyRevision = (bodyRevision === undefined) ? -1 : bodyRevision;
+
+        if(this._wiredHighlightSilhouette.update(sources, filters, body ? body.alpha : 255, bodyRedrawn)) this.updateSpriteCounter++;
+    }
+
+    /** The avatar's sprites, then its wired highlight glow while one shows. */
+    public get sprites(): IRoomObjectSprite[]
+    {
+        const sprites = super.sprites;
+        const glow = this._wiredHighlightSilhouette?.sprite;
+
+        if(!sprites || !glow || !glow.visible || !glow.texture) return sprites;
+
+        if((this._spritesWithGlowBase !== sprites) || (this._spritesWithGlowLength !== sprites.length))
+        {
+            this._spritesWithGlowBase = sprites;
+            this._spritesWithGlowLength = sprites.length;
+            this._spritesWithGlow = [ ...sprites, glow ];
+        }
+
+        return this._spritesWithGlow;
+    }
+
+    protected setDirection(direction: number): void
+    {
+        if(this._direction === direction) return;
+
+        this._direction = direction;
+
+        this._needsUpdate = true;
+    }
+
+    public static isLayInside(postureParameter: string): boolean
+    {
+        const height = Math.trunc(parseFloat(postureParameter));
+
+        return (!isNaN(height) && (height < 0));
+    }
+
+    private updateScale(scale: number): void
+    {
+        if(scale < 48) this._blink = false;
+
+        if((this._posture === 'sit') || (this._posture === 'lay'))
+        {
+            this._postureOffset = scale / 2;
+        }
+        else
+        {
+            this._postureOffset = 0;
+        }
+
+        this._layInside = false;
+        this._isLaying = false;
+
+        if(this._posture === 'lay')
+        {
+            this._isLaying = true;
+
+            // AIR: int(postureParameter) < 0 lays the avatar inside the furni (validateActions).
+            if(AvatarVisualization.isLayInside(this._postureParameter)) this._layInside = true;
+        }
+    }
+
+    private processActionsForAvatar(avatar: IAvatarImage): void
+    {
+        if(!avatar) return;
+
+        avatar.initActionAppends();
+
+        avatar.appendAction(AvatarAction.POSTURE, this._posture, this._postureParameter);
+
+        if(this._gesture > 0) this._avatarImage.appendAction(AvatarAction.GESTURE, AvatarAction.getGesture(this._gesture));
+
+        if(this._dance > 0) this._avatarImage.appendAction(AvatarAction.DANCE, this._dance);
+
+        if(this._sign > -1) this._avatarImage.appendAction(AvatarAction.SIGN, this._sign);
+
+        if(this._carryObject > 0) this._avatarImage.appendAction(AvatarAction.CARRY_OBJECT, this._carryObject);
+
+        if(this._useObject > 0) this._avatarImage.appendAction(AvatarAction.USE_OBJECT, this._useObject);
+
+        if(this._talk) this._avatarImage.appendAction(AvatarAction.TALK);
+
+        if(this._sleep || this._blink) this._avatarImage.appendAction(AvatarAction.SLEEP);
+
+        if(this._expression > 0)
+        {
+            const expression = AvatarAction.getExpression(this._expression);
+
+            if(expression)
+            {
+                switch(expression)
+                {
+                    case AvatarAction.DANCE:
+                        this._avatarImage.appendAction(AvatarAction.DANCE, (this._expression === AvatarAction.EXPRESSION_SIX_SEVEN_ID) ? AvatarAction.DANCE_SIX_SEVEN : 2);
+                        break;
+                    default:
+                        this._avatarImage.appendAction(expression);
+                        break;
+                }
+            }
+        }
+
+        if(this._effect > 0) this._avatarImage.appendAction(AvatarAction.EFFECT, this._effect);
+
+        avatar.endActionAppends();
+
+        this._isAnimating = avatar.isAnimating();
+
+        let spriteCount = AvatarVisualization.INITIAL_RESERVED_SPRITES;
+
+        for(const sprite of this._avatarImage.getSprites())
+        {
+            if(sprite.id !== AvatarVisualization.AVATAR) spriteCount++;
+        }
+
+        if(spriteCount !== this.totalSprites) this.createSprites(spriteCount);
+
+        this._extraSpritesStartIndex = spriteCount;
+
+        if(this._additions)
+        {
+            for(const addition of this._additions.values()) this.createSprite();
+        }
+    }
+
+    private updateFigure(figure: string): boolean
+    {
+        if(this._figure === figure) return false;
+
+        this._figure = figure;
+
+        this.clearAvatar();
+
+        return true;
+    }
+
+    public resetFigure(figure: string): void
+    {
+        this.clearAvatar();
+    }
+
+    public resetEffect(effect: number): void
+    {
+        this.clearAvatar();
+    }
+
+    private cloneTexture(texture: Texture, reuse: Texture = null): Texture
+    {
+        if(!texture) return null;
+
+        const width = Math.max(1, Math.ceil(texture.width));
+        const height = Math.max(1, Math.ceil(texture.height));
+
+        let target = reuse;
+
+        if(!(target instanceof RenderTexture) || target.destroyed || (target.width !== width) || (target.height !== height))
+        {
+            if(reuse && !reuse.destroyed) reuse.destroy(true);
+
+            target = RenderTexture.create({ width, height });
+        }
+
+        const sprite = new Sprite(texture);
+        const container = new Container();
+
+        container.addChild(sprite);
+
+        GetRenderer().render({
+            target,
+            container,
+            clear: true
+        });
+
+        container.destroy({ children: true });
+
+        return target;
+    }
+
+    private destroyMirrorTextures(): void
+    {
+        for(const texture of this._reflectionMirrorTextures.values())
+        {
+            if(texture && !texture.destroyed) texture.destroy(true);
+        }
+
+        this._reflectionMirrorTextures.clear();
+        this._reflectionMirrors = new Map();
+    }
+
+    private renderMirrorTextures(highlightEnabled: boolean): void
+    {
+        if(!this.object || !this._avatarImage || (this._angle < 0) || !Number.isFinite(this._angleCameraDirection) || !RoomWindowReflectionState.hasZones) return;
+
+        const roomId = this.object.model?.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID);
+        const normals = RoomWindowReflectionState.getZoneNormalsNear(this.object.getLocation(), roomId, 0.8);
+
+        if(!normals.length)
+        {
+            if(this._reflectionMirrorTextures.size) this.destroyMirrorTextures();
+
+            return;
+        }
+
+        const normalize = (degrees: number) => (((degrees % 360) + 360) % 360);
+        const cameraDirection = this._angleCameraDirection;
+        const toImageAngle = (cameraRelativeDegrees: number) => normalize(cameraRelativeDegrees - (135 - 22.5));
+        const worldFacing = normalize(this._angle + cameraDirection);
+        const headDiffers = (Number.isFinite(this._headAngle) && (this._headAngle >= 0) && (this._headAngle !== this._angle));
+        const worldHead = normalize(this._headAngle + cameraDirection);
+        const keyDirection = this.object.getDirection().x;
+        const liveKey = RoomWindowReflectionState.reflectDirection(keyDirection, 0, 0);
+        const mirrors = new Map<number, Texture>();
+
+        for(const normal of normals)
+        {
+            const key = RoomWindowReflectionState.reflectDirection(keyDirection, normal.x, normal.y);
+
+            if((key === liveKey) || mirrors.has(key)) continue;
+
+            const renderWorld = RoomWindowReflectionState.reflectDirection(worldFacing, normal.x, normal.y);
+
+            this._avatarImage.setDirectionAngle(AvatarSetType.FULL, toImageAngle(normalize(renderWorld - cameraDirection)));
+
+            if(headDiffers)
+            {
+                const renderHead = RoomWindowReflectionState.reflectDirection(worldHead, normal.x, normal.y);
+
+                this._avatarImage.setDirectionAngle(AvatarSetType.HEAD, toImageAngle(normalize(renderHead - cameraDirection)));
+            }
+
+            const rendered = this._avatarImage.processAsTexture(AvatarSetType.FULL, highlightEnabled);
+
+            if(!rendered) continue;
+
+            const stored = this.cloneTexture(rendered, this._reflectionMirrorTextures.get(key) || null);
+
+            if(!stored) continue;
+
+            this._reflectionMirrorTextures.set(key, stored as RenderTexture);
+            mirrors.set(key, stored);
+        }
+
+        this._avatarImage.setDirectionAngle(AvatarSetType.FULL, toImageAngle(this._angle));
+
+        if(headDiffers) this._avatarImage.setDirectionAngle(AvatarSetType.HEAD, toImageAngle(this._headAngle));
+
+        // A direction no longer reflected gives its texture back; they were kept until the avatar was disposed.
+        for(const [ key, texture ] of this._reflectionMirrorTextures)
+        {
+            if(mirrors.has(key)) continue;
+
+            if(texture && !texture.destroyed) texture.destroy(true);
+
+            this._reflectionMirrorTextures.delete(key);
+        }
+
+        this._reflectionMirrors = mirrors;
+    }
+
+    private updateWindowReflectionSource(skipIfUnchanged: boolean = false): void
+    {
+        if(!this.object) return;
+
+        const sprite = this.getSprite(AvatarVisualization.SPRITE_INDEX_AVATAR);
+
+        if(sprite?.texture)
+        {
+            const location = this.object.getLocation();
+            const direction = this.object.getDirection().x;
+
+            if(skipIfUnchanged && this._windowReflectionPushed)
+            {
+                if((sprite.texture === this._lastReflectionPushedTexture) &&
+                    (direction === this._lastReflectionPushedDirection) &&
+                    (location.x === this._lastReflectionPushedLocation.x) &&
+                    (location.y === this._lastReflectionPushedLocation.y) &&
+                    (location.z === this._lastReflectionPushedLocation.z)) return;
+            }
+
+            const roomId = this.object.model?.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID);
+
+            if(!RoomWindowReflectionState.hasZones || !RoomWindowReflectionState.isNearAnyZone(location, roomId))
+            {
+                if(this._windowReflectionPushed)
+                {
+                    RoomWindowReflectionState.removeAvatar(this.object.id, roomId);
+
+                    this._windowReflectionPushed = false;
+                    this._lastReflectionPushedTexture = null;
+                }
+
+                return;
+            }
+
+            RoomWindowReflectionState.setAvatar(this.object.id, sprite.texture, this._reflectionMirrors, direction, location, this._reflectionVerticalOffset, roomId);
+
+            this._windowReflectionPushed = true;
+            this._lastReflectionPushedTexture = sprite.texture;
+            this._lastReflectionPushedDirection = direction;
+            this._lastReflectionPushedLocation.assign(location);
+
+            return;
+        }
+
+        RoomWindowReflectionState.removeAvatar(this.object.id, this.object.model?.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID));
+
+        this._windowReflectionPushed = false;
+        this._lastReflectionPushedTexture = null;
+    }
+
+    private clearAvatar(): void
+    {
+        const sprite = this.getSprite(AvatarVisualization.AVATAR_LAYER_ID);
+
+        if(sprite)
+        {
+            sprite.texture = Texture.EMPTY;
+            sprite.alpha = 255;
+        }
+
+
+        for(const avatar of this._cachedAvatars.getValues()) avatar && avatar.dispose();
+
+        for(const avatar of this._cachedAvatarEffects.getValues()) avatar && avatar.dispose();
+
+        this._cachedAvatars.reset();
+        this._cachedAvatarEffects.reset();
+
+        this.destroyMirrorTextures();
+
+
+        this._avatarImage = null;
+
+        if(this.object) RoomWindowReflectionState.removeAvatar(this.object.id, this.object.model?.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID));
+
+        this._windowReflectionPushed = false;
+        this._lastReflectionPushedTexture = null;
+        this._lastReflectionPushedDirection = -1;
+    }
+
+    private getAddition(id: number): IAvatarAddition
+    {
+        if(!this._additions) return null;
+
+        const existing = this._additions.get(id);
+
+        if(!existing) return null;
+
+        return existing;
+    }
+
+    private addAddition(addition: IAvatarAddition): IAvatarAddition
+    {
+        const existing = this.getAddition(addition.id);
+
+        if(existing) return;
+
+        this._additions.set(addition.id, addition);
+
+        return addition;
+    }
+
+    private removeAddition(id: number): void
+    {
+        const addition = this.getAddition(id);
+
+        if(!addition) return;
+
+        this._additions.delete(addition.id);
+
+        addition.dispose();
+    }
+
+    /**
+     * Behaviour from the AIR client (AvatarVisualization.getSpriteList): the figure as camera scene sprites, the
+     * figure parts from the avatar image, then the effect sprites, then the shadow. Positions are relative to the
+     * avatar's screen location; the scene builder moves them into place. As in the AIR build of 4 November 2026,
+     * effect sprites and the shadow are lifted by the avatar body layer's own offset (its direction offset and
+     * animation dy), so an effect that moves the body keeps its sprites and shadow on the figure in a photo.
+     */
+    public getSpriteList(): RoomObjectSpriteData[]
+    {
+        if(!this._avatarImage) return null;
+
+        let shadowData: RoomObjectSpriteData = null;
+        const shadowSprite = this.getSprite(AvatarVisualization.SHADOW_LAYER_ID);
+
+        // AIR always adds the shadow sprite; we leave it out while it is hidden (sitting, laying).
+        if(shadowSprite && shadowSprite.visible && shadowSprite.libraryAssetName)
+        {
+            shadowData = new RoomObjectSpriteData();
+            shadowData.alpha = shadowSprite.alpha;
+            shadowData.x = Math.trunc(shadowSprite.offsetX);
+            shadowData.y = Math.trunc(shadowSprite.offsetY);
+            shadowData.name = shadowSprite.libraryAssetName;
+            shadowData.width = Math.trunc(shadowSprite.width);
+            shadowData.height = Math.trunc(shadowSprite.height);
+
+            const bodySprite = this.getSprite(AvatarVisualization.AVATAR_LAYER_ID);
+
+            shadowData.z = shadowSprite.relativeDepth - (bodySprite ? bodySprite.relativeDepth : 0);
+        }
+
+        const spriteList = this._avatarImage.getServerRenderData() || [];
+        const direction = this._avatarImage.getDirection();
+        // AIR always places the effect sprites for the 64 scale.
+        const scale = 64;
+        const bodyOffsetY = this.getBodyLayerOffsetY(direction);
+
+        if(shadowData) shadowData.y -= bodyOffsetY;
+
+        for(const spriteData of (this._avatarImage.getSprites() || []))
+        {
+            if(spriteData.id === AvatarVisualization.AVATAR) continue;
+
+            const layerData = this._avatarImage.getLayerData(spriteData);
+
+            let frameNumber = 0;
+            let offsetX = spriteData.getDirectionOffsetX(direction);
+            let offsetY = spriteData.getDirectionOffsetY(direction);
+            const offsetZ = spriteData.getDirectionOffsetZ(direction);
+            let dd = (spriteData.hasDirections ? direction : 0);
+
+            if(layerData)
+            {
+                frameNumber = layerData.animationFrame;
+                offsetX += layerData.dx;
+                offsetY += layerData.dy;
+                dd += layerData.dd;
+            }
+
+            if(dd < 0) dd += 8;
+            else if(dd > 7) dd -= 8;
+
+            const assetName = (this._avatarImage.getScale() + '_' + spriteData.member + '_' + dd + '_' + frameNumber);
+            const asset = this._avatarImage.getAsset(assetName);
+
+            if(!asset) continue;
+
+            const data = new RoomObjectSpriteData();
+
+            data.x = Math.trunc((asset.offsetX - (scale / 2)) + offsetX);
+            data.y = Math.trunc(asset.offsetY + offsetY - bodyOffsetY);
+
+            if(spriteData.hasStaticY) data.y = Math.trunc(data.y + ((this._verticalOffset * scale) / (2 * AvatarVisualization.BASE_Y_SCALE)));
+
+            if(spriteData.ink === 33) data.blendMode = 'add';
+
+            data.name = assetName;
+            data.z = (this._isLaying ? (-0.409 - ((0.001 * this.spriteCount) * offsetZ)) : ((-0.001 * this.spriteCount) * offsetZ));
+            // AIR's tie-break, so an effect sprite at the same depth as a figure part draws after it.
+            data.z += 3.7e-11;
+
+            const rectangle = asset.rectangle;
+
+            data.width = (rectangle ? Math.trunc(rectangle.width) : 60);
+            data.height = (rectangle ? Math.trunc(rectangle.height) : 60);
+
+            spriteList.push(data);
+        }
+
+        // A grayscale effect palette tints every part but the effect and shadow sprites with its first red.
+        const avatarData = (this._avatarImage as unknown as { avatarSpriteData?: { paletteIsGrayscale: boolean, reds: number[] } }).avatarSpriteData;
+
+        if(avatarData && avatarData.paletteIsGrayscale && avatarData.reds && avatarData.reds.length)
+        {
+            const color = avatarData.reds[0].toString();
+
+            for(const data of spriteList)
+            {
+                if((data.name.indexOf('h_std_fx') === -1) && (data.name.indexOf('h_std_sd') === -1)) data.color = color;
+            }
+        }
+
+        if(shadowData) spriteList.push(shadowData);
+
+        return spriteList;
+    }
+
+    /** The y offset of the avatar body layer itself (AIR leaves it out while the avatar sits where it can stand up). */
+    private getBodyLayerOffsetY(direction: number): number
+    {
+        if(this._canStandUp) return 0;
+
+        let offsetY = 0;
+
+        for(const spriteData of (this._avatarImage.getSprites() || []))
+        {
+            if(spriteData.id !== AvatarVisualization.AVATAR) continue;
+
+            offsetY += spriteData.getDirectionOffsetY(direction);
+
+            const layerData = this._avatarImage.getLayerData(spriteData);
+
+            if(layerData) offsetY += layerData.dy;
+        }
+
+        return offsetY;
+    }
+
+    private updateShadow(scale: number): void
+    {
+        this._shadow = null;
+
+        const sprite = this.getSprite(AvatarVisualization.SHADOW_LAYER_ID);
+
+        if(!sprite) return;
+
+        let hasShadow = (((this._posture === 'mv') || (this._posture === 'std')) || ((this._posture === 'sit') && this._canStandUp));
+
+        if(this._effect === AvatarVisualization.SNOWBOARDING_EFFECT) hasShadow = false;
+
+        if(hasShadow)
+        {
+            sprite.visible = true;
+
+            if(!this._shadow || (scale !== this._scale))
+            {
+                let offsetX = 0;
+                let offsetY = 0;
+
+                if(scale < 48)
+                {
+                    sprite.libraryAssetName = 'sh_std_sd_1_0_0';
+
+                    this._shadow = GetAssetManager().getAsset(sprite.libraryAssetName);
+
+                    offsetX = -8;
+                    offsetY = ((this._canStandUp) ? 6 : -3);
+                }
+                else
+                {
+                    sprite.libraryAssetName = 'h_std_sd_1_0_0';
+
+                    this._shadow = GetAssetManager().getAsset(sprite.libraryAssetName);
+
+                    offsetX = -17;
+                    offsetY = ((this._canStandUp) ? 10 : -7);
+                }
+
+                if(this._shadow)
+                {
+                    sprite.texture = this._shadow.texture;
+                    sprite.offsetX = offsetX;
+                    sprite.offsetY = offsetY;
+                    sprite.alpha = 50;
+                    sprite.relativeDepth = 1;
+                }
+                else
+                {
+                    sprite.visible = false;
+                }
+            }
+        }
+        else
+        {
+            this._shadow = null;
+
+            sprite.visible = false;
+        }
+    }
+
+    public get direction(): number
+    {
+        return this._direction;
+    }
+
+    public get posture(): string
+    {
+        return this._posture;
+    }
+
+    public get habbiconFacingDirection(): number
+    {
+        if(!this._avatarImage) return 0;
+
+        return AvatarVisualization.resolveHabbiconFacingDirection(this._avatarImage.getDirection());
+    }
+
+    private static resolveHabbiconFacingDirection(direction: number): number
+    {
+        const facing = ((direction % 8) + 8) % 8;
+
+        if(facing <= 2) return 1;
+
+        if((facing >= 4) && (facing <= 6)) return -1;
+
+        return 0;
+    }
+
+    private normalizeDirectionAngle(angle: number): number
+    {
+        return ((angle % 360) + 360) % 360;
+    }
+
+    public get angle(): number
+    {
+        return this._angle;
+    }
+
+    public get disposed(): boolean
+    {
+        return this._disposed;
+    }
+}

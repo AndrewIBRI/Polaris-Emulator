@@ -1,0 +1,384 @@
+.octane-badge-leaderboard__window {
+    position: relative;
+    width: 460px;
+    height: 679px;
+    overflow: hidden;
+    image-rendering: var(--octane-pixel-art, pixelated);
+    filter: drop-shadow(0 18px 32px rgba(0, 0, 0, 0.45));
+}
+
+.octane-badge-leaderboard__drag-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 90px;
+    z-index: 1;
+    cursor: move;
+}
+
+.octane-badge-leaderboard__frame {
+    position: absolute;
+    inset: 0;
+    border-style: solid;
+    border-width: 87px 96px 42px 96px;
+    border-image-source: var(--badge-leaderboard-frame);
+    border-image-slice: 87 96 42 96;
+    border-image-width: 87px 96px 42px 96px;
+    border-image-repeat: round;
+    background: #ece8dc;
+    background-clip: padding-box;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.octane-badge-leaderboard__frame::after {
+    content: '';
+    position: absolute;
+    inset: 86px 95px 41px 95px;
+    background: #ece8dc;
+}
+
+.octane-badge-leaderboard__close {
+    position: absolute;
+    top: 12px;
+    right: 108px;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    z-index: 5;
+}
+
+.octane-badge-leaderboard__close-icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+    background-repeat: no-repeat;
+    background-position: 0 0;
+    image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-badge-leaderboard__header {
+    position: absolute;
+    top: 7px;
+    left: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 4;
+}
+
+.octane-badge-leaderboard__category-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-width: 120px;
+    max-width: 220px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.octane-badge-leaderboard__header-title {
+    /* main_view title_txt: font_size 16, bold, white over four offset shadow copies. */
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 21px;
+    text-shadow:
+        0 1px 0 #4a4a4a,
+        1px 0 0 #4a4a4a,
+        -1px 0 0 #4a4a4a,
+        0 -1px 0 #4a4a4a;
+}
+
+.octane-badge-leaderboard__header-arrow {
+    width: auto;
+    height: auto;
+    margin-top: 3px;
+    image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-badge-leaderboard__category-positioner {
+    z-index: 9999;
+}
+
+.octane-badge-leaderboard__category-menu {
+    display: flex;
+    flex-direction: column;
+    width: 154px;
+    padding: 2px;
+    border: 1px solid #8f8f8f;
+    border-radius: 6px;
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.octane-badge-leaderboard__category-option {
+    border: 0;
+    padding: 5px 9px;
+    background: transparent;
+    /* hidden_dropdown has no text style of its own: u_regular 12 px black. */
+    color: #000000;
+    font-size: 12px;
+    line-height: 1.15;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    outline: 0;
+}
+
+.octane-badge-leaderboard__category-option:hover,
+.octane-badge-leaderboard__category-option[data-highlighted],
+.octane-badge-leaderboard__category-option[data-selected],
+.octane-badge-leaderboard__category-option.is-active {
+    background: rgba(117, 170, 207, 0.28);
+}
+
+.octane-badge-leaderboard__content {
+    position: absolute;
+    inset: 80px 38px 30px 38px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* username_txt / score_txt: style 3 text without a text_color, black. */
+    color: #000000;
+    z-index: 2;
+}
+
+.octane-badge-leaderboard__state {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 18px;
+    color: #3d3d3d;
+}
+
+.octane-badge-leaderboard__state--error {
+    color: #9f2b2b;
+}
+
+.octane-badge-leaderboard__info-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(231, 229, 221, 0.96));
+    border: 1px solid #a4a094;
+    border-radius: 10px;
+    box-shadow: inset 0 1px 0 #ffffff;
+}
+
+.octane-badge-leaderboard__info-icon {
+    width: auto;
+    height: auto;
+    max-width: 25px;
+    max-height: 25px;
+    image-rendering: var(--octane-pixel-art, pixelated);
+    flex: none;
+}
+
+.octane-badge-leaderboard__info-text {
+    /* rank_type_info: font_size 11, 0x222222, regular. */
+    color: #222222;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.2;
+    /* the info texts break their two sentences with a line break */
+    white-space: pre-line;
+}
+
+.octane-badge-leaderboard__list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.octane-badge-leaderboard__row {
+    display: grid;
+    grid-template-columns: 34px 54px minmax(0, 1fr) 56px 28px;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 10px 0 8px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+}
+
+.octane-badge-leaderboard__row.is-even {
+    background-image: url('../../assets/images/leaderboard_badge/leaderboard_entry_even.png');
+}
+
+.octane-badge-leaderboard__row.is-odd {
+    background-image: url('../../assets/images/leaderboard_badge/leaderboard_entry_uneven.png');
+}
+
+.octane-badge-leaderboard__row.is-current-user {
+    min-height: 40px;
+    background-image: url('../../assets/images/leaderboard_badge/leaderboard_entry_self.png');
+}
+
+.octane-badge-leaderboard__rank {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #6a8db7 0%, #4d6788 100%);
+    border: 1px solid #546b87;
+    /* rank_number: font_size 15, bold, white with a black bottom-right etching. */
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+    text-shadow: 1px 1px 0 #000000;
+}
+
+.octane-badge-leaderboard__rank.is-rank-1 {
+    background: linear-gradient(180deg, #efcf58 0%, #c28e1f 100%);
+    border-color: #af8325;
+}
+
+.octane-badge-leaderboard__rank.is-rank-2 {
+    background: linear-gradient(180deg, #d4d4d4 0%, #9d9d9d 100%);
+    border-color: #8e8e8e;
+}
+
+.octane-badge-leaderboard__rank.is-rank-3 {
+    background: linear-gradient(180deg, #db9c4f 0%, #a56521 100%);
+    border-color: #9a5c1c;
+}
+
+.octane-badge-leaderboard__avatar {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    margin: 0 auto;
+    align-self: center;
+}
+
+/* The renderer-backed LayoutAvatarImageView (headOnly) draws the avatar head as
+   an absolutely-positioned background div (`.avatar-image`), not an <img>. Frame
+   it the same way the friends list does, scaled up for the larger row. */
+.octane-badge-leaderboard__avatar .avatar-image {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    background-repeat: no-repeat;
+    background-size: 82px auto !important;
+    background-position: -20px -24px !important;
+    transform: none !important;
+    image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-badge-leaderboard__username {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* username_txt: no text style, so u_regular 12 px (not bold) in black. */
+    color: #000000;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 17px;
+}
+
+.octane-badge-leaderboard__score {
+    width: 56px;
+    /* score_txt: u_regular with bold=true, 12 px. */
+    color: #000000;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: right;
+    padding-inline-start: 0;
+}
+
+.octane-badge-leaderboard__row-emblem {
+    display: block;
+    width: auto !important;
+    height: auto !important;
+    max-width: 25px;
+    max-height: 25px;
+    margin: 0 auto;
+    image-rendering: var(--octane-pixel-art, pixelated);
+    object-fit: contain;
+}
+
+.octane-badge-leaderboard__divider {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 2px;
+    image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-badge-leaderboard__footer {
+    gap: 10px;
+    margin-top: auto;
+}
+
+/* previous_btn / next_btn: `button` style 3, the grey habbo_skin_button_shiny, button_shiny_regular 12 px black. */
+.octane-badge-leaderboard__nav-button {
+    min-width: 100px;
+    height: 26px;
+    border: 5px solid transparent;
+    border-image-source: var(--habbo-skin-shiny);
+    border-image-slice: 5 fill;
+    border-image-width: 5px;
+    border-image-repeat: stretch;
+    border-radius: 0;
+    background: transparent;
+    color: #000000;
+    font-size: 12px;
+    font-weight: 400;
+    cursor: pointer;
+    box-shadow: none;
+    image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-badge-leaderboard__nav-button:hover:not(:disabled) {
+    border-image-source: var(--habbo-skin-shiny-hover);
+}
+
+.octane-badge-leaderboard__nav-button:active:not(:disabled) {
+    border-image-source: var(--habbo-skin-shiny-pressed);
+}
+
+.octane-badge-leaderboard__nav-button:disabled {
+    border-image-source: var(--habbo-skin-shiny-disabled);
+    color: #8d8d8d;
+    cursor: default;
+}
+
+/* main_view is a style-3 Ubuntu layout; our `Ubuntu` face is the condensed cut, AIR's is the regular one.
+   The category menu is portalled out of the window, so it gets the face on its own. */
+.octane-badge-leaderboard,
+.octane-badge-leaderboard__category-menu {
+    font-family: HabboAirUbuntu, UbuntuRegular, sans-serif;
+}
+
+@layer base {
+    .octane-badge-leaderboard :where(*):not(svg, svg *),
+    .octane-badge-leaderboard__category-menu :where(*):not(svg, svg *) {
+        font-family: HabboAirUbuntu, UbuntuRegular, sans-serif !important;
+    }
+}

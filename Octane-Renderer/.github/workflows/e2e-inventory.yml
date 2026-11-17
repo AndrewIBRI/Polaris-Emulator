@@ -1,0 +1,120 @@
+name: Inventory E2E
+
+on:
+  pull_request:
+    branches: [Dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      E2E_DB_HOST: 127.0.0.1
+      E2E_DB_PORT: "3306"
+      E2E_DB_NAME: polaris_e2e_inventory
+      E2E_DB_USER: root
+      E2E_DB_PASSWORD: root
+      E2E_SSO_TICKET: e2e-inventory-ticket
+      E2E_SECOND_SSO_TICKET: e2e-inventory-peer-ticket
+      E2E_USER_ID: "900001"
+      E2E_ROOM_ID: "900002"
+      E2E_GAME_PORT: "31999"
+      E2E_RAW_PORT: "31998"
+      E2E_RCON_PORT: "32000"
+      E2E_WS_URL: ws://127.0.0.1:31999
+      E2E_PROBE_URL: http://127.0.0.1:31999/__e2e
+      E2E_RUNTIME_DIR: /tmp/polaris-e2e-inventory
+    steps:
+      - name: Checkout renderer
+        uses: actions/checkout@v7
+
+      - name: Resolve companion emulator branch
+        shell: bash
+        env:
+          RENDERER_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login || github.repository_owner }}
+        run: |
+          # Same pairing as the packet contracts workflow: the emulator branch with the name of this branch, then
+          # <name>-emulator, on the owner of this branch and on upstream; the emulator dev branch when there is none.
+          stem="${RENDERER_BRANCH%-renderer}"
+          for candidate in \
+            "${PR_HEAD_OWNER}/Polaris-Emulator:${RENDERER_BRANCH}" \
+            "duckietm/Polaris-Emulator:${RENDERER_BRANCH}" \
+            "${PR_HEAD_OWNER}/Polaris-Emulator:${stem}-emulator" \
+            "duckietm/Polaris-Emulator:${stem}-emulator"; do
+            repository="${candidate%%:*}"
+            ref="${candidate#*:}"
+            if git ls-remote --exit-code --heads "https://github.com/${repository}.git" "$ref" >/dev/null 2>&1; then
+              git clone --depth 1 --branch "$ref" "https://github.com/${repository}.git" .e2e/emulator
+              exit 0
+            fi
+          done
+          git clone --depth 1 --branch dev https://github.com/duckietm/Polaris-Emulator.git .e2e/emulator
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          cache-dependency-path: .e2e/emulator/Emulator/pom.xml
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install MariaDB client
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+
+      - name: Build and start Polaris
+        shell: bash
+        run: |
+          mvn -B -f .e2e/emulator/Emulator/pom.xml package -DskipTests
+          bash .e2e/emulator/e2e/prepare-database.sh
+          bash .e2e/emulator/e2e/start-emulator.sh
+
+      - name: Install renderer dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack yarn install --immutable
+
+      - name: Run inventory lifecycle
+        run: yarn test:e2e:inventory
+
+      - name: Verify inventory persistence
+        run: bash .e2e/emulator/e2e/verify-inventory-state.sh
+
+      - name: Upload Polaris logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: inventory-e2e-polaris-logs
+          path: /tmp/polaris-e2e-inventory/*.log
+          if-no-files-found: warn
+
+      - name: Stop Polaris
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "${E2E_RUNTIME_DIR}/polaris.pid" ]; then
+            kill "$(cat "${E2E_RUNTIME_DIR}/polaris.pid")" || true
+          fi

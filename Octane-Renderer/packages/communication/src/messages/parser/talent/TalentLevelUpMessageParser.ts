@@ -1,0 +1,65 @@
+import { IMessageDataWrapper, IMessageParser } from '@octane/api';
+import { TalentTrackRewardPerk } from './TalentTrackRewardPerk';
+import { TalentTrackRewardProduct } from './TalentTrackRewardProduct';
+
+export class TalentLevelUpMessageParser implements IMessageParser
+{
+    private _talentTrackName: string;
+    private _level: number;
+    private _rewardPerks: TalentTrackRewardPerk[];
+    private _rewardProducts: TalentTrackRewardProduct[];
+
+    public flush(): boolean
+    {
+        this._talentTrackName = null;
+        this._level = -1;
+        this._rewardPerks = [];
+        this._rewardProducts = [];
+
+        return true;
+    }
+
+    public parse(wrapper: IMessageDataWrapper): boolean
+    {
+        if(!wrapper) return false;
+
+        this._talentTrackName = wrapper.readString();
+        this._level = wrapper.readInt();
+
+        const totalRewardsPerks = wrapper.readInt();
+
+        for(let i = 0; i < totalRewardsPerks; i++) this._rewardPerks.push(new TalentTrackRewardPerk(wrapper));
+
+        const totalRewardsProducts = wrapper.readInt();
+
+        for(let i = 0; i < totalRewardsProducts; i++)
+        {
+            const name = wrapper.readString();
+            const vipDays = wrapper.readInt();
+
+            this._rewardProducts.push(new TalentTrackRewardProduct(name, vipDays));
+        }
+
+        return true;
+    }
+
+    public get talentTrackName(): string
+    {
+        return this._talentTrackName;
+    }
+
+    public get level(): number
+    {
+        return this._level;
+    }
+
+    public get rewardPerks(): TalentTrackRewardPerk[]
+    {
+        return this._rewardPerks;
+    }
+
+    public get rewardProducts(): TalentTrackRewardProduct[]
+    {
+        return this._rewardProducts;
+    }
+}

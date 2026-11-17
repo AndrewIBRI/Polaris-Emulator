@@ -1,0 +1,37 @@
+﻿import { GetTickerTime } from '../GetTickerTime';
+import { Motion } from './Motion';
+
+export class Wait extends Motion
+{
+    private _startTimeMs: number;
+    private _waitTimeMs: number;
+
+    constructor(waitTime: number)
+    {
+        super(null);
+
+        this._waitTimeMs = waitTime;
+    }
+
+    public get running(): boolean
+    {
+        return this._running;
+    }
+
+    public start(): void
+    {
+        super.start();
+
+        this._complete = false;
+        this._startTimeMs = GetTickerTime();
+    }
+
+    public tick(time: number): void
+    {
+        super.tick(time);
+
+        this._complete = ((time - this._startTimeMs) >= this._waitTimeMs);
+
+        if(this._complete) this.stop();
+    }
+}

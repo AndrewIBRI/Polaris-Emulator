@@ -1,0 +1,84 @@
+import { Texture } from 'pixi.js';
+import { IFurnitureData } from './IFurnitureData';
+import { IGroupInformationManager } from './IGroupInformationManager';
+import { IBlockedUsersManager } from './IBlockedUsersManager';
+import { IIgnoredUsersManager } from './IIgnoredUsersManager';
+import { IProductData } from './IProductData';
+import { IUserDataSnapshot } from './IUserDataSnapshot';
+
+export interface ISessionDataManager
+{
+    init(): Promise<void>;
+    getAllFurnitureData(): IFurnitureData[];
+    mergeFurnitureDataFromUrl(url: string): Promise<IFurnitureData[]>;
+    applyFurnitureDataOverrides(url: string): Promise<void>;
+    clearFurnitureDataOverrides(): void;
+    getFloorItemData(id: number): IFurnitureData;
+    getFloorItemDataByName(name: string): IFurnitureData;
+    getWallItemData(id: number): IFurnitureData;
+    getWallItemDataByName(name: string): IFurnitureData;
+    getProductData(type: string): IProductData;
+    getBadgeUrl(name: string): string;
+    getGroupBadgeUrl(name: string): string;
+    getBadgeImage(name: string): Texture;
+    getUserTags(roomUnitId: number): string[];
+    loadBadgeImage(name: string): string;
+    /** `allowServerImage` false draws the badge here even with a badge imager (badge editor previews). */
+    getGroupBadgeImage(name: string, allowServerImage?: boolean): Texture;
+    /** One image URL per group badge for the interface; null until BadgeImageReadyEvent says it is ready. */
+    getGroupBadgeImageUrl(name: string, allowServerImage?: boolean): string;
+    loadGroupBadgeImage(name: string): string;
+    hasSecurity(level: number): boolean;
+    hasPermission(key: string, fallbackLevel: number): boolean;
+    giveRespect(userId: number): void;
+    givePetRespect(petId: number): void;
+    sendSpecialCommandMessage(text: string, styleId?: number): void;
+    ignoreUser(userId: number): void;
+    unignoreUser(userId: number): void;
+    isUserIgnored(userId: number): boolean;
+    blockUser(userId: number): void;
+    unblockUser(userId: number): void;
+    isBlocked(userId: number): boolean;
+    replenishRespect(): void;
+    setFriendBarState(expanded: boolean): void;
+    setRoomToolsState(expanded: boolean): void;
+    getGroupBadge(groupId: number): string;
+    userId: number;
+    userName: string;
+    figure: string;
+    gender: string;
+    realName: string;
+    ignoredUsersManager: IIgnoredUsersManager;
+    blockedUsersManager: IBlockedUsersManager;
+    groupInformationManager: IGroupInformationManager;
+    respectsReceived: number;
+    respectsLeft: number;
+    respectsPetLeft: number;
+    respectReplenishesLeft: number;
+    maxRespectPerDay: number;
+    canChangeName: boolean;
+    clubLevel: number;
+    securityLevel: number;
+    isAmbassador: boolean;
+    isEmailVerified: boolean;
+    isSafetyLocked: boolean;
+    isNoob: boolean;
+    readonly isFirstLoginOfDay: boolean;
+    isRealNoob: boolean;
+    isSystemOpen: boolean;
+    isSystemShutdown: boolean;
+    isAuthenticHabbo: boolean;
+    isModerator: boolean;
+    isAnyRoomController: boolean;
+    isCameraFollowDisabled: boolean;
+    uiFlags: number;
+    tags: string[];
+    getUserDataSnapshot(): Readonly<IUserDataSnapshot>;
+    /**
+     * Referentially-stable view of the resolved permission map for
+     * the current user. Invalidated by `USER_PERMISSIONS_UPDATED`.
+     * Empty when the connected emulator doesn't ship the extended
+     * `UserPermissionsMapComposer` (Arcturus ≥ 4.2.10).
+     */
+    getPermissionsSnapshot(): ReadonlyMap<string, number>;
+}

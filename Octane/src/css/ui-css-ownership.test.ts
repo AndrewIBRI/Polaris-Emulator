@@ -1,0 +1,179 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const readSource = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
+
+describe('UI CSS ownership', () =>
+{
+    it('keeps static widget styles in css files instead of React style tags', () =>
+    {
+        const radioView = readSource('src/components/radio/RadioView.tsx');
+        const toolbarView = readSource('src/components/toolbar/ToolbarView.tsx');
+        const friendsBarView = readSource('src/components/friends/views/friends-bar/FriendsBarView.tsx');
+        const wheelWinReveal = readSource('src/components/fortune-wheel/WheelWinReveal.tsx');
+        const userIdentityView = readSource('src/common/UserIdentityView.tsx');
+        const inventoryPrefixView = readSource('src/components/inventory/views/prefix/InventoryPrefixView.tsx');
+        const bubbleHiddenView = readSource('src/components/octanebubblehidden/OctanebubbleHiddenView.tsx');
+        const prefixEffectsCss = readSource('src/css/common/PrefixEffects.css');
+        const chatsCss = readSource('src/css/chat/Chats.css');
+
+        expect(radioView).not.toContain('RADIO_STYLES');
+        expect(toolbarView).not.toContain('TOOLBAR_STYLES');
+        expect(toolbarView).not.toContain('backgroundPosition: \'-25px -38px\'');
+        expect(toolbarView).toContain('airMeMenu');
+        expect(friendsBarView).not.toContain('FRIENDBAR_STYLES');
+        expect(wheelWinReveal).not.toContain('<style>');
+        expect(userIdentityView).not.toContain('<style>');
+        expect(inventoryPrefixView).not.toContain('<style>');
+        expect(bubbleHiddenView).not.toContain('<style>');
+        expect(bubbleHiddenView).not.toContain('dangerouslySetInnerHTML');
+        expect(prefixEffectsCss).toContain('@keyframes prefix-pulse');
+        expect(prefixEffectsCss).toContain('@keyframes prefix-sparkle');
+        expect(chatsCss).toContain('.octane-bubbles-hidden .newbubblehe');
+    });
+
+    it('keeps the wired fx editor on its own class', () =>
+    {
+        // The room fx used to be drawn with .octane-wired-fx (white, shadowed, bold); the editor
+        // window shared it by accident and came out bold. The room renderer draws the fx now, so
+        // the css only holds the editor, under its own class.
+        const editorView = readSource('src/components/wired/views/extras/WiredExtraVariableFxView.tsx');
+        const fxCss = readSource('src/css/room/WiredVariableFx.css');
+
+        expect(editorView).toContain('octane-wired-fx-editor');
+        expect(editorView).not.toMatch(/octane-wired-fx(?!-editor)(?:__[\w-]+)?["'\s]/);
+        expect(fxCss).toContain('.octane-wired-fx-editor__override');
+        expect(fxCss).not.toMatch(/\.octane-wired-fx(?!-editor)/);
+    });
+
+    it('keeps window-specific classes from repainting shared card chrome', () =>
+    {
+        const groupCreatorView = readSource('src/components/groups/views/GroupCreatorView.tsx');
+        const catalogView = readSource('src/components/catalog/CatalogView.tsx');
+        const catalogAdminOfferEditView = readSource('src/components/catalog/views/admin/CatalogAdminOfferEditView.tsx');
+        const catalogAdminPageEditView = readSource('src/components/catalog/views/admin/CatalogAdminPageEditView.tsx');
+        const catalogAdminModalView = readSource('src/components/catalog/views/admin/CatalogAdminModalView.tsx');
+        const catalogLayoutColorGroupingView = readSource('src/components/catalog/views/page/layout/CatalogLayoutColorGroupingView.tsx');
+        const catalogLayoutSoundMachineView = readSource('src/components/catalog/views/page/layout/CatalogLayoutSoundMachineView.tsx');
+        const catalogLayoutVipBuyView = readSource('src/components/catalog/views/page/layout/CatalogLayoutVipBuyView.tsx');
+        const catalogLayoutMarketplaceItemView = readSource('src/components/catalog/views/page/layout/marketplace/CatalogLayoutMarketplaceItemView.tsx');
+        const catalogLayoutTrophiesView = readSource('src/components/catalog/views/page/layout/CatalogLayoutTrophiesView.tsx');
+        const getCatalogLayout = readSource('src/components/catalog/views/page/layout/GetCatalogLayout.tsx');
+        const catalogCss = readSource('src/css/catalog/CatalogView.css');
+        const inventoryCss = readSource('src/css/inventory/InventoryView.css');
+        const friendsCss = readSource('src/css/friends/FriendsView.css');
+        const roomSettingsCss = readSource('src/css/room/NavigatorRoomSettings.css');
+        const indexCss = readSource('src/css/index.css');
+        const wiredCss = readSource('src/css/WiredView.css');
+        const inventoryView = readSource('src/components/inventory/InventoryView.tsx');
+        const inventoryCategoryFilterView = readSource('src/components/inventory/views/InventoryCategoryFilterView.tsx');
+        const navigatorView = readSource('src/components/navigator/NavigatorView.tsx');
+        const navigatorRoomSettingsView = readSource('src/components/navigator/views/room-settings/NavigatorRoomSettingsView.tsx');
+        const wiredBaseView = readSource('src/components/wired/views/WiredBaseView.tsx');
+        const friendsCategoryManagerView = readSource('src/components/friends/views/friends-list/FriendsCategoryManagerView.tsx');
+        const friendsListView = readSource('src/components/friends/views/friends-list/FriendsListView.tsx');
+        const friendsListCss = readSource('src/components/friends/views/friends-list/FriendsListView.css');
+        const friendsListRemoveConfirmationView = readSource('src/components/friends/views/friends-list/FriendsListRemoveConfirmationView.tsx');
+        const friendsListRoomInviteView = readSource('src/components/friends/views/friends-list/FriendsListRoomInviteView.tsx');
+        const friendsMessengerView = readSource('src/components/friends/views/messenger/FriendsMessengerView.tsx');
+        const friendsMessengerCss = readSource('src/components/friends/views/messenger/FriendsMessengerView.css');
+        const vaultView = readSource('src/components/vault/VaultView.tsx');
+        const helpView = readSource('src/components/help/HelpView.tsx');
+        const userSettingsView = readSource('src/components/user-settings/UserSettingsView.tsx');
+        const chatHistoryView = readSource('src/components/chat-history/ChatHistoryView.tsx');
+        const chatHistoryCss = readSource('src/css/chat/ChatHistoryView.css');
+        const vaultCss = readSource('src/css/vault/VaultView.css');
+        const userSettingsCss = readSource('src/css/user-settings/UserSettingsView.css');
+        const sanctionStatusView = readSource('src/components/help/views/SanctionStatusView.tsx');
+        const mentionsView = readSource('src/components/mentions/MentionsView.tsx');
+        const translationSettingsView = readSource('src/components/translation/TranslationSettingsView.tsx');
+        const userAccountSettingsView = readSource('src/components/user-settings/UserAccountSettingsView.tsx');
+        const hcCenterView = readSource('src/components/hc-center/HcCenterView.tsx');
+        const inventoryFurnitureDeleteView = readSource('src/components/inventory/views/furniture/InventoryFurnitureDeleteView.tsx');
+
+        expect(groupCreatorView).not.toContain('border border-[solid] border-[#283F5D]');
+        expect(catalogView).not.toContain('habbo-swf-window');
+        expect(catalogAdminModalView).toContain('createPortal');
+        expect(catalogAdminModalView).toContain('octane-card-shell');
+        expect(catalogAdminModalView).toContain('fixed inset-0 z-[1000]');
+        expect(catalogAdminModalView).toContain('max-w-[calc(100vw-16px)]');
+        expect(catalogAdminModalView).toContain('max-h-[calc(100vh-16px)]');
+        expect(catalogAdminModalView).toContain('overflow-hidden');
+        expect(catalogCss).toContain('.octane-catalog-admin-form-scroll');
+        expect(catalogAdminOfferEditView).not.toContain('style={ { zIndex: 1000 } }');
+        expect(catalogAdminOfferEditView).not.toContain('border-2 border-card-grid-item-border rounded px-2 py-1 bg-white');
+        expect(catalogAdminOfferEditView).not.toContain('bg-white rounded border-2 border-card-grid-item-border p-2.5');
+        expect(catalogAdminOfferEditView).toContain('octane-catalog-admin-input');
+        expect(catalogAdminOfferEditView).toContain('octane-catalog-admin-form-sheet');
+        expect(catalogAdminOfferEditView).toContain('<CatalogAdminModalView');
+        expect(catalogAdminOfferEditView).toContain('widthClassName="w-[500px]"');
+        expect(catalogLayoutColorGroupingView).not.toContain('style={ { maxHeight: 154 } }');
+        expect(catalogLayoutSoundMachineView).not.toContain('style={ { height: 140 } }');
+        expect(catalogLayoutVipBuyView).not.toContain('backgroundSize: \'contain\'');
+        expect(catalogLayoutMarketplaceItemView).not.toContain('style={ { width: 40, height: 40 } }');
+        expect(catalogLayoutTrophiesView).not.toContain('boxShadow: \'0 0 8px');
+        expect(catalogLayoutTrophiesView).not.toContain('background: trophyText.length');
+        expect(catalogLayoutTrophiesView).toContain('octane-catalog-air-trophies__inscription');
+        expect(catalogAdminPageEditView).toContain('<CatalogAdminModalView');
+        expect(catalogAdminPageEditView).toContain('widthClassName="w-[540px]"');
+        expect(catalogAdminPageEditView).toContain('octane-catalog-admin-form-sheet');
+        expect(catalogAdminPageEditView).not.toContain('border-2 border-card-grid-item-border rounded px-2 py-1 bg-white');
+        expect(catalogAdminPageEditView).toContain('octane-catalog-admin-input');
+        expect(getCatalogLayout).not.toContain('custom_prefix');
+        expect(getCatalogLayout).not.toContain('CatalogLayoutCustomPrefixView');
+        expect(catalogCss).toContain('.octane-catalog-window :where(.bg-white, .bg-gray-50, .bg-card-grid-item)');
+        expect(catalogCss).toContain('.octane-catalog-window :where(input, select, .octane-select-trigger, textarea)');
+        expect(catalogCss).toContain('.octane-catalog-window :where(.text-muted, .text-dark)');
+        expect(catalogCss).toContain('.octane-catalog-admin-body :where(.uppercase.font-bold)');
+        expect(catalogCss).toContain('.octane-catalog-admin-input');
+        expect(catalogCss).toContain('.octane-catalog-admin-form-sheet');
+        expect(catalogCss).toContain('.octane-catalog-admin-form-section');
+        expect(catalogCss).toContain('.octane-catalog-admin-button.is-primary');
+        expect(catalogCss).toContain('.octane-catalog-air-trophies__inscription textarea');
+        expect(catalogCss).toContain('.octane-catalog-marketplace-item-icon');
+        expect(catalogCss).toContain('.octane-catalog-vip-hc-banner');
+        expect(inventoryCategoryFilterView).not.toContain('style={ { width: currentTab === TAB_BADGES');
+        expect(inventoryCategoryFilterView).toContain('octane-inventory-filter-bar');
+        expect(inventoryCss).toContain('.octane-inventory-window .octane-inventory-filter-bar.is-badges');
+        expect(inventoryCss).toContain('.octane-inventory-window :where(.bg-card-grid-item, .bg-white, .bg-light, .bg-muted)');
+        expect(inventoryCss).toContain('.octane-inventory-window :where(input, select, .octane-select-trigger, textarea)');
+        expect(friendsCategoryManagerView).not.toContain('style={ { width: 270, minWidth: 270 } }');
+        expect(friendsListRemoveConfirmationView).not.toContain('style={ { width: 270, height: 225');
+        expect(friendsListRoomInviteView).not.toContain('style={ { width: 270, height: 225');
+        expect(friendsCss).toContain('.octane-friends-category-manager :where(input, select, .octane-select-trigger, textarea)');
+        expect(friendsCss).toContain('width: min(270px, calc(100vw - 16px))');
+        expect(roomSettingsCss).toContain('.octane-room-settings');
+        // Checkboxes/radios are excluded from the text-input skin: its
+        // `background` shorthand would wipe the @tailwindcss/forms check glyph.
+        expect(roomSettingsCss).toContain(':where(input:not([type="checkbox"]):not([type="radio"]), select, .octane-select-trigger, textarea)');
+        expect(indexCss).not.toContain('.octane-wired :where(select, input[type=\'text\'], input[type=\'number\'], .octane-number-input, textarea)');
+        expect(wiredCss).toContain('.octane-wired :where(select, .octane-select-trigger, input[type=\'text\'], input[type=\'number\'], .octane-number-input, textarea)');
+        expect(wiredCss).toContain('.octane-wired__variable-picker-portal');
+        // The mod tools are drawn as native windows (src/css/mod-tools): the old card skin is gone from the shared sheet.
+        expect(indexCss).not.toContain('.octane-mod-tools');
+        expect(wiredCss).toContain('.octane-wired__body');
+        expect(wiredCss).toContain('overflow-y: auto');
+        expect(inventoryView).toContain('max-w-[calc(100vw-16px)]');
+        expect(navigatorView).toContain('max-w-[calc(100vw-16px)]');
+        expect(navigatorRoomSettingsView).toContain('max-w-[calc(100vw-16px)]');
+        expect(wiredBaseView).toContain('max-h-[calc(100vh-16px)]');
+        // These fixed-layout windows keep their viewport clamp in their own CSS.
+        expect(friendsListCss).toContain('max-width: min(230px, calc(100vw - 16px));');
+        expect(friendsMessengerCss).toMatch(/\.messenger-window\s*\{[^}]*max-width:\s*calc\(100vw - 10px\)/s);
+        expect(vaultView).toContain('max-w-[calc(100vw-16px)]');
+        expect(helpView).toContain('max-w-[calc(100vw-16px)]');
+        expect(userSettingsView).toContain('max-w-[calc(100vw-16px)]');
+        expect(chatHistoryView).toContain('octane-chat-history');
+        expect(chatHistoryView).not.toContain('style={{ flex: 1, overflowY: \'auto\'');
+        expect(chatHistoryCss).toContain('.octane-chat-history-scroll');
+        expect(vaultCss).toContain('.octane-vault-content');
+        expect(userSettingsCss).toContain('.user-settings-window');
+        expect(sanctionStatusView).toContain('max-w-[calc(100vw-16px)]');
+        expect(mentionsView).toContain('max-w-[calc(100vw-16px)]');
+        expect(translationSettingsView).toContain('max-w-[calc(100vw-16px)]');
+        expect(userAccountSettingsView).toContain('max-w-[calc(100vw-16px)]');
+        expect(hcCenterView).toContain('max-w-[calc(100vw-16px)]');
+        expect(inventoryFurnitureDeleteView).toContain('max-w-[calc(100vw-16px)]');
+    });
+});

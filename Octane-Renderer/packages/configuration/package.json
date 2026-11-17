@@ -1,0 +1,17 @@
+{
+  "name": "@octane/configuration",
+  "description": "Octane configuration module",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "GPL-3.0",
+  "scripts": {
+    "compile": "tsc --project ./tsconfig.json --noEmit false"
+  },
+  "main": "./index",
+  "dependencies": {
+    "@octane/utils": "1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

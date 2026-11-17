@@ -1,0 +1,82 @@
+import { RedeemVoucherMessageComposer, VoucherRedeemErrorMessageEvent, VoucherRedeemOkMessageEvent } from '@octane/renderer';
+import { FC, useState } from 'react';
+import { LocalizeText, localizeWithFallback, SendMessageComposer } from '../../../../../api';
+import { Button } from '../../../../../common';
+import { NativeTextTree } from '../../../../../common/native-text/NativeTextTree';
+import { useMessageEvent, useNotification } from '../../../../../hooks';
+import { OctaneInput } from '../../../../../layout';
+
+export interface CatalogRedeemVoucherViewProps {
+    text: string;
+}
+
+export const CatalogRedeemVoucherView: FC<CatalogRedeemVoucherViewProps> = (props) => {
+    const { text = null } = props;
+    const [voucher, setVoucher] = useState<string>('');
+    const [isWaiting, setIsWaiting] = useState(false);
+    const { simpleAlert = null } = useNotification();
+
+    const redeemVoucher = () => {
+        if (isWaiting) return;
+
+        // AIR RedeemItemCodeCatalogWidget: an empty field says so instead of doing nothing.
+        if (!voucher || !voucher.trim().length) {
+            simpleAlert(
+                localizeWithFallback('catalog.voucher.empty.desc', 'You did not enter a voucher code.'),
+                null,
+                null,
+                null,
+                localizeWithFallback('catalog.voucher.empty.title', 'No code')
+            );
+
+            return;
+        }
+
+        SendMessageComposer(new RedeemVoucherMessageComposer(voucher));
+
+        setIsWaiting(true);
+    };
+
+    useMessageEvent<VoucherRedeemOkMessageEvent>(VoucherRedeemOkMessageEvent, (event) => {
+        const parser = event.getParser();
+
+        let message = LocalizeText('catalog.alert.voucherredeem.ok.description');
+
+        if (parser.productName)
+            message = LocalizeText(
+                'catalog.alert.voucherredeem.ok.description.furni',
+                ['productName', 'productDescription'],
+                [parser.productName, parser.productDescription]
+            );
+
+        simpleAlert(message, null, null, null, LocalizeText('catalog.alert.voucherredeem.ok.title'));
+
+        setIsWaiting(false);
+        setVoucher('');
+    });
+
+    useMessageEvent<VoucherRedeemErrorMessageEvent>(VoucherRedeemErrorMessageEvent, (event) => {
+        const parser = event.getParser();
+
+        simpleAlert(
+            LocalizeText(`catalog.alert.voucherredeem.error.description.${parser.errorCode}`),
+            null,
+            null,
+            null,
+            LocalizeText('catalog.alert.voucherredeem.error.title')
+        );
+
+        setIsWaiting(false);
+    });
+
+    return (
+        <NativeTextTree>
+            <div className="flex gap-1">
+                <OctaneInput placeholder={text} value={voucher} onChange={(event) => setVoucher(event.target.value)} />
+                <Button classNames={['octane-catalog-redeem-button']} disabled={isWaiting} onClick={redeemVoucher}>
+                    {LocalizeText('redeem')}
+                </Button>
+            </div>
+        </NativeTextTree>
+    );
+};

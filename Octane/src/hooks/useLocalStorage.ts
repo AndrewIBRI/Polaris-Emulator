@@ -1,0 +1,200 @@
+import { OctaneLogger } from '@octane/renderer';
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
+import { GetLocalStorage, SetLocalStorage } from '../api';
+
+const userId = new URLSearchParams(window.location.search).get('userid') || 0;
+
+const storageKeyOf = (key: string): string => (userId ? `${key}.${userId}` : key);
+
+// The live hooks of every storage key: discardLocalStorage resets them, so a value cleared at logout is not written
+// back by a pending write, by the flush on page hide, or by the next update built on the old in-memory list.
+const liveResets = new Map<string, Set<() => void>>();
+
+/** Removes the stored values of these keys and resets every live hook on them to its initial value. */
+export const discardLocalStorage = (keys: string[]): void => {
+    for (const key of keys) {
+        const storageKey = storageKeyOf(key);
+
+        liveResets.get(storageKey)?.forEach((reset) => reset());
+
+        try {
+            window.localStorage.removeItem(storageKey);
+        } catch {
+            /* storage blocked: nothing to remove */
+        }
+    }
+};
+
+const STORAGE_WRITE_DEBOUNCE_MS = 250;
+const QUOTA_TRIM_FACTOR = 0.5; // on quota error, keep the newest 50%.
+const MIN_RETAINED_ENTRIES = 50;
+
+const isQuotaError = (error: unknown): boolean => {
+    if (!error || typeof error !== 'object') return false;
+    const name = (error as { name?: string }).name;
+    if (name === 'QuotaExceededError') return true;
+    // Firefox legacy:
+    if (name === 'NS_ERROR_DOM_QUOTA_REACHED') return true;
+    return false;
+};
+
+const trimArrayForQuota = <T>(value: T): T => {
+    if (!Array.isArray(value)) return value;
+    if (value.length <= MIN_RETAINED_ENTRIES) return [] as unknown as T;
+    const keep = Math.max(MIN_RETAINED_ENTRIES, Math.floor(value.length * QUOTA_TRIM_FACTOR));
+    return value.slice(value.length - keep) as unknown as T;
+};
+
+// A stored value of another shape than the initial one (an old format, a hand-edited or corrupted entry) would reach
+// callers that rely on that shape - a history that is not an array threw on every render - so it is replaced by the
+// initial value. An initial null or undefined accepts any stored value.
+const matchesInitialShape = <T>(stored: unknown, initialValue: T): stored is T => {
+    if (initialValue === null || initialValue === undefined) return true;
+    if (Array.isArray(initialValue)) return Array.isArray(stored);
+    if (typeof initialValue === 'object') return !!stored && typeof stored === 'object' && !Array.isArray(stored);
+
+    return typeof stored === typeof initialValue;
+};
+
+interface UseLocalStorageOptions<T> {
+    /**
+     * Optional projection applied right before the value is written to
+     * localStorage. The in-memory React state is unaffected. Use this to
+     * strip heavy ephemeral fields (e.g. base64 image URLs) that would
+     * otherwise blow past the storage quota.
+     */
+    toStorage?: (value: T) => unknown;
+}
+
+const useLocalStorageState = <T>(key: string, initialValue: T, options: UseLocalStorageOptions<T> = {}): [T, Dispatch<SetStateAction<T>>] => {
+    key = storageKeyOf(key);
+
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            const item = typeof window !== 'undefined' ? GetLocalStorage<unknown>(key) : undefined;
+
+            if (item === null || item === undefined) return initialValue;
+
+            return matchesInitialShape(item, initialValue) ? item : initialValue;
+        } catch (error) {
+            return initialValue;
+        }
+    });
+
+    // Event bursts and async callbacks can hold a setter from an earlier render. Every update is resolved
+    // against the latest value, including updates React has not rendered yet, so none erases a newer one.
+    const storedValueRef = useRef(storedValue);
+    // Boxed so that null is a value like any other: an empty ref means no write is pending.
+    const pendingWriteRef = useRef<{ value: T } | null>(null);
+    const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const optionsRef = useRef(options);
+
+    // Keep the latest toStorage projection without re-running effects.
+    optionsRef.current = options;
+
+    const flushWrite = (value: T) => {
+        if (typeof window === 'undefined') return;
+
+        const project = optionsRef.current.toStorage;
+        const projected = project ? project(value) : value;
+
+        try {
+            SetLocalStorage(key, projected);
+            return;
+        } catch (error) {
+            if (!isQuotaError(error)) {
+                OctaneLogger.error(error);
+                return;
+            }
+        }
+
+        // Quota exceeded - trim and retry once. Anything that isn't an
+        // array gets cleared, since we have no generic trimming rule.
+        try {
+            const trimmed = trimArrayForQuota(projected as T);
+            SetLocalStorage(key, trimmed);
+            OctaneLogger.warn(`[useLocalStorage] quota exceeded for ${key}, trimmed payload`);
+        } catch (retryError) {
+            OctaneLogger.error(retryError);
+            // Last resort: drop the key entirely so future writes have room.
+            try {
+                window.localStorage.removeItem(key);
+            } catch (_) {
+                /* ignore */
+            }
+        }
+    };
+
+    // Debounce: high-frequency chat would otherwise trigger one full
+    // JSON.stringify + setItem per message. We coalesce bursts into one
+    // write per STORAGE_WRITE_DEBOUNCE_MS window with the latest value.
+    const scheduleWrite = (value: T) => {
+        pendingWriteRef.current = { value };
+        if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+        writeTimerRef.current = setTimeout(() => {
+            writeTimerRef.current = null;
+            const pending = pendingWriteRef.current;
+            pendingWriteRef.current = null;
+            if (pending) flushWrite(pending.value);
+        }, STORAGE_WRITE_DEBOUNCE_MS);
+    };
+
+    // Flush a pending write on tab close / hide so we don't lose the last
+    // burst of activity.
+    useEffect(() => {
+        const flushOnLeave = () => {
+            const pending = pendingWriteRef.current;
+            if (!pending) return;
+            if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+            writeTimerRef.current = null;
+            pendingWriteRef.current = null;
+            flushWrite(pending.value);
+        };
+
+        window.addEventListener('pagehide', flushOnLeave);
+        window.addEventListener('beforeunload', flushOnLeave);
+
+        return () => {
+            window.removeEventListener('pagehide', flushOnLeave);
+            window.removeEventListener('beforeunload', flushOnLeave);
+        };
+    }, []);
+
+    const initialValueRef = useRef(initialValue);
+
+    useEffect(() => {
+        const reset = () => {
+            if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+            writeTimerRef.current = null;
+            pendingWriteRef.current = null;
+            storedValueRef.current = initialValueRef.current;
+            setStoredValue(initialValueRef.current);
+        };
+        const resets = liveResets.get(key) ?? new Set<() => void>();
+
+        resets.add(reset);
+        liveResets.set(key, resets);
+
+        return () => {
+            resets.delete(reset);
+            if (!resets.size) liveResets.delete(key);
+        };
+    }, [key]);
+
+    const setValue: Dispatch<SetStateAction<T>> = (value) => {
+        try {
+            const valueToStore = value instanceof Function ? value(storedValueRef.current) : value;
+
+            storedValueRef.current = valueToStore;
+            setStoredValue(valueToStore);
+
+            scheduleWrite(valueToStore);
+        } catch (error) {
+            OctaneLogger.error(error);
+        }
+    };
+
+    return [storedValue, setValue];
+};
+
+export const useLocalStorage = useLocalStorageState;

@@ -1,0 +1,743 @@
+.octane-extended-profile-window__content {
+  background: #ece8dc;
+}
+
+.octane-extended-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.octane-extended-profile__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.06fr) 1px minmax(0, 0.94fr);
+  gap: 10px;
+  min-height: 188px;
+}
+
+.octane-extended-profile__separator {
+  background: #afafaf;
+}
+
+.octane-extended-profile__left,
+.octane-extended-profile__right {
+  display: flex;
+  flex-direction: column;
+}
+
+.octane-extended-profile__identity {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.octane-extended-profile__avatar-shell {
+  width: 68px;
+  height: 135px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.octane-extended-profile__avatar-stand,
+.octane-extended-profile__avatar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.octane-extended-profile__identity-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.octane-extended-profile__username {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.octane-extended-profile__motto {
+  margin: 0;
+  min-height: 24px;
+  color: #000000;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 12px;
+  overflow: hidden;
+}
+
+.octane-extended-profile__meta {
+  margin: 0;
+  color: #000000;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.octane-extended-profile__meta--strong {
+  margin-top: 2px;
+}
+
+.octane-extended-profile__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 23px;
+  margin-top: 3px;
+}
+
+.octane-extended-profile__presence {
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.octane-extended-profile__status-copy {
+  min-height: 23px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.octane-extended-profile__status-text {
+  color: #000000;
+  /* status_txt: u_bold, 12 px. */
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.octane-extended-profile__friend-button,
+.octane-extended-profile__link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #0655b7;
+  font-size: 11px;
+  line-height: 1;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* addasfriend_button: button style 3 (habbo_skin_button_shiny), button_shiny_regular 12 px black, 23 px high. */
+.octane-extended-profile__friend-button {
+  min-width: 105px;
+  min-height: 23px;
+  padding: 0 9px;
+  border: 5px solid transparent;
+  border-image-source: var(--habbo-skin-shiny);
+  border-image-slice: 5 fill;
+  border-image-width: 5px;
+  border-image-repeat: stretch;
+  border-radius: 0;
+  background: transparent;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: none;
+  cursor: pointer;
+  image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-extended-profile__friend-button:hover {
+  border-image-source: var(--habbo-skin-shiny-hover);
+}
+
+.octane-extended-profile__friend-button:active {
+  border-image-source: var(--habbo-skin-shiny-pressed);
+}
+
+.octane-extended-profile__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+  min-height: 16px;
+}
+
+.octane-extended-profile__badges {
+  margin-top: 5px;
+  min-height: 55px;
+  border: 1px solid #afafaf;
+  background: linear-gradient(180deg, #f6f3e7 0%, #ede8d8 100%);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  padding: 6px 7px;
+}
+
+.octane-extended-profile__badge-slot {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.octane-extended-profile__badge-slot .badge-image {
+  width: auto !important;
+  height: auto !important;
+}
+
+.octane-extended-profile__right {
+  padding-top: 6px;
+}
+
+.octane-extended-profile__relationships-label {
+  margin: 3px 0 4px;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.octane-extended-profile__hidden-notice {
+  margin: 0;
+  padding: 12px 4px;
+  color: #555;
+  font-size: 12px;
+  /* profile.full_profile_hidden: 12 px bold #555555. */
+  font-weight: 700;
+  text-align: center;
+}
+
+.octane-extended-profile__relationship {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.octane-extended-profile__relationship-icon {
+  height: 33px;
+}
+
+.octane-extended-profile__relationship-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.octane-extended-profile__relationship-box {
+  min-height: 22px;
+  /* Skin border style 2: a rounded, near-white field. */
+  border: 1px solid #c3c3c3;
+  border-radius: 8px;
+  background: #fbfbfa;
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  position: relative;
+  overflow: hidden;
+}
+
+.octane-extended-profile__relationship-name {
+  margin: 0;
+  color: #000000;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  max-width: calc(100% - 38px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.octane-extended-profile__relationship-head {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  width: 30px;
+  height: 32px;
+  transform: translateY(-50%);
+  overflow: hidden;
+}
+
+.octane-extended-profile__relationship-head .avatar-image {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  background-size: 60px auto !important;
+  background-position: -14px -21px !important;
+  transform: none !important;
+}
+
+.octane-extended-profile__relationship-subcopy {
+  margin: 1px 0 0 8px;
+  color: #7f7f7f;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 14px;
+}
+
+.octane-extended-profile__summary-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+  min-height: 38px;
+  background: #ece8dc;
+  border-top: 1px solid #afafaf;
+  border-bottom: 1px solid #afafaf;
+}
+
+.octane-extended-profile__summary-button {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #afafaf;
+  color: #000000;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.octane-extended-profile__summary-button:first-child {
+  border-left: 1px solid #afafaf;
+}
+
+.octane-extended-profile__summary-button--center {
+  cursor: pointer;
+}
+
+.octane-extended-profile__summary-icon {
+  width: auto;
+  height: auto;
+  max-width: 32px;
+  max-height: 28px;
+  image-rendering: var(--octane-pixel-art, pixelated);
+  flex-shrink: 0;
+}
+
+.octane-extended-profile__summary-icon--badge {
+  max-width: 25px;
+  max-height: 25px;
+}
+
+.octane-extended-profile__summary-label {
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: underline;
+}
+
+.octane-extended-profile__summary-value {
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Official badgeRank "(#N)" after the badge count. */
+.octane-extended-profile__summary-rank {
+  margin-left: 3px;
+  line-height: 1;
+}
+
+.octane-extended-profile-window__body {
+  background: #ece8dc;
+}
+
+.octane-extended-profile-window__content.profile-card-background .octane-extended-profile-window__body {
+  background: transparent;
+}
+
+.octane-extended-profile-window__body--groups {
+  min-height: 249px;
+}
+
+.octane-extended-profile-window__panel {
+  border: 1px solid #afafaf;
+  background: #d6d3cb;
+  padding: 0 !important;
+}
+
+.octane-extended-profile-groups {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  /* One row the panel's height, so a long group list scrolls instead of growing out of the window. */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 7px;
+  min-height: 236px;
+  height: 100%;
+}
+
+.octane-extended-profile-groups__sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.octane-extended-profile-groups__count {
+  margin-bottom: 5px;
+  color: #000000;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.octane-extended-profile-groups__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.octane-extended-profile-groups__item {
+  width: 54px;
+  min-height: 54px;
+  margin-bottom: 4px;
+}
+
+.octane-extended-profile-groups__details {
+  min-width: 0;
+  min-height: 236px;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.octane-extended-profile-group-info {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 100%;
+  border: 1px solid #9f9f9f;
+  border-radius: 12px;
+  background: #efede4;
+  padding: 12px 14px;
+}
+
+.octane-extended-profile-group-info__badge-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.octane-extended-profile-group-info__badge-wrap {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.octane-extended-profile-group-info__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.octane-extended-profile-group-info__role {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.octane-extended-profile-group-info__content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.octane-extended-profile-group-info__header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.octane-extended-profile-group-info__description {
+  margin-top: 10px;
+  min-height: 52px;
+  color: #000000;
+  line-height: 14px;
+}
+
+.octane-extended-profile-group-info__links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.octane-extended-profile-group-info__button {
+  align-self: center;
+  min-width: 162px;
+  min-height: 24px;
+  margin-top: auto;
+}
+
+.octane-extended-profile-group-info__badge-wrap .group-badge {
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+  background-size: contain !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-extended-profile-window .layout-grid-item.active {
+  background: linear-gradient(180deg, #ffe89b 0%, #ffc74b 100%);
+  box-shadow: inset 0 0 0 2px #fff4c4;
+}
+
+.octane-extended-profile-window .layout-grid-item {
+  border-radius: 4px;
+  border: 1px solid #8d8d8d;
+  background: #efede4;
+}
+
+.octane-extended-profile-groups__item .layout-grid-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.octane-extended-profile-groups__item {
+  overflow: hidden;
+}
+
+.octane-extended-profile-groups__item .group-badge {
+  width: 40px !important;
+  height: 40px !important;
+  transform: none !important;
+  background-size: contain !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+@media (max-width: 575.98px) {
+  .octane-extended-profile-window__content {
+    overflow-y: auto;
+  }
+
+  .octane-extended-profile-window__body--groups {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .octane-extended-profile-window__panel {
+    height: auto;
+  }
+
+  .octane-extended-profile__top {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .octane-extended-profile__separator {
+    display: none;
+  }
+
+  .octane-extended-profile-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: auto;
+    min-height: 0;
+  }
+
+  .octane-extended-profile-groups__sidebar {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .octane-extended-profile-groups__list {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 6px;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: 0;
+    padding-bottom: 6px;
+  }
+
+  .octane-extended-profile-groups__item {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .octane-extended-profile-groups__details {
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .octane-extended-profile-group-info {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .octane-extended-profile-group-info__badge-wrap {
+    width: 64px;
+    height: 64px;
+  }
+
+  .octane-extended-profile-group-info__button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* ---- official block_button and blocked_container ---- */
+
+.octane-extended-profile {
+  position: relative;
+}
+
+.octane-extended-profile__block-button {
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #9b9b9b;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ffffff 0%, #e2e2e2 100%);
+  cursor: pointer;
+
+  img {
+    display: block;
+    width: 16px;
+    height: 16px;
+    image-rendering: var(--octane-pixel-art, pixelated);
+  }
+}
+
+/* The dimmed layer (0x898985 at 80%) over the whole window, the drama text in its 0xe9e9e1
+   box and Frank's stop sign drawn at double size. */
+.octane-extended-profile__blocked-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(137, 137, 133, 0.8);
+}
+
+.octane-extended-profile__blocked-text {
+  box-sizing: border-box;
+  width: 250px;
+  min-height: 100px;
+  padding: 14px 19px 14px 13px;
+  border-radius: 6px;
+  background: #e9e9e1;
+  color: #000;
+  font-size: 11px;
+  line-height: 14px;
+
+  a {
+    color: #000;
+    cursor: pointer;
+  }
+}
+
+.octane-extended-profile__blocked-frank {
+  width: 148px;
+  height: 192px;
+  image-rendering: var(--octane-pixel-art, pixelated);
+}
+
+.octane-extended-profile-window__content {
+  position: relative;
+}
+
+/* new_extended_profile is an Illumina (style 100) frame in Ubuntu; our `Ubuntu` face is the condensed cut. */
+.octane-extended-profile-window {
+  font-family: HabboAirUbuntu, UbuntuRegular, sans-serif;
+}
+
+@layer base {
+  .octane-extended-profile-window :where(*):not(svg, svg *) {
+    font-family: HabboAirUbuntu, UbuntuRegular, sans-serif !important;
+  }
+}
+
+/* AIR no_groups (343 x 214): caption, picture 311 x 136 at 15,21, the info at 164 and the button 216 x 30 at 62,184. */
+.octane-extended-profile-no-groups {
+    position: relative;
+    display: block;
+    width: 343px;
+    max-width: 100%;
+    min-height: 214px;
+    margin: 0 auto;
+    color: #000;
+    font-size: 12px;
+    line-height: 17px;
+}
+
+.octane-extended-profile-no-groups__caption {
+    height: 17px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.octane-extended-profile-no-groups__picture {
+    display: block;
+    width: 311px;
+    max-width: calc(100% - 30px);
+    height: auto;
+    margin: 4px 15px 7px;
+    image-rendering: pixelated;
+}
+
+.octane-extended-profile-no-groups__info {
+    min-height: 17px;
+}
+
+.octane-extended-profile-no-groups__view {
+    display: flex;
+    width: 216px;
+    height: 30px;
+    margin: 3px 0 0 62px;
+    padding: 0 0 0 11px;
+    gap: 7px;
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: #000;
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: underline;
+}
+
+.octane-extended-profile-no-groups__view img {
+    width: 24px;
+    height: 17px;
+    image-rendering: pixelated;
+}

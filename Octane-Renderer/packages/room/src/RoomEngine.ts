@@ -1,0 +1,4055 @@
+import { IFurnitureStackingHeightMap, IGetImageListener, IImageResult, ILegacyWallGeometry, IObjectData, IPetColorResult, IPlaneDrawingData, IPetCustomPart, IRoomAreaSelectionManager, IRoomContentListener, IRoomContentLoader, IRoomCreator, IRoomEngine, IRoomEngineServices, IRoomGeometry, IRoomInstance, IRoomManager, IRoomManagerListener, IRoomObject, IRoomObjectController, IRoomObjectModel, IRoomObjectVariableFxEntry, IRoomObjectVisualization, IRoomRenderer, IRoomRenderingCanvas, IRoomSessionManager, ISelectedRoomObjectData, ISessionDataManager, ITileObjectMap, IUpdateReceiver, IVector3D, LegacyDataType, MouseEventType, ObjectDataFactory, PetFigureData, RoomControllerLevel, RoomObjectCategory, RoomObjectOperationType, RoomObjectUserType, RoomObjectVariable, ToolbarIconEnum } from '@octane/api';
+import { GetCommunication, RenderRoomMessageComposer, RenderRoomThumbnailMessageComposer } from '@octane/communication';
+import { GetAssetManager } from '@octane/assets';
+import { GetConfiguration } from '@octane/configuration';
+import { BadgeImageReadyEvent, GetEventDispatcher, OctaneToolbarAnimateIconEvent, RoomBackgroundColorEvent, RoomDragEvent, RoomEngineAreaHideStateEvent, RoomEngineEvent, RoomEngineObjectEvent, RoomObjectEvent, RoomObjectFurnitureActionEvent, RoomObjectMouseEvent, RoomSessionEvent, RoomToObjectOwnAvatarMoveEvent } from '@octane/events';
+import { GetRoomSessionManager, GetSessionDataManager } from '@octane/session';
+import { FurniId, GetRenderer, GetTexturePool, GetTickerTime, OctaneLogger, NumberBank, TextureUtils, Vector3d } from '@octane/utils';
+import { Container, Matrix, Point, PointData, Rectangle, RenderTexture, Sprite, Texture, Ticker, WebGLRenderer } from 'pixi.js';
+import { DEFAULT_WIRED_CLICK_SETTINGS, normalizeWiredClickSettings, WiredClickSettings } from './utils/WiredClickSettings';
+import { GetRoomContentLoader } from './GetRoomContentLoader';
+import { buildContentImageKey } from './RoomContentLoader';
+import { GetRoomManager } from './GetRoomManager';
+import { GetRoomMessageHandler } from './GetRoomMessageHandler';
+import { GetRoomObjectLogicFactory } from './GetRoomObjectLogicFactory';
+import { ImageResult } from './ImageResult';
+import { RoomInstance } from './RoomInstance';
+import { RoomObjectEventHandler } from './RoomObjectEventHandler';
+import { RoomRenderScene } from './RoomRenderScene';
+import { buildRoomObjectImageKey, DisposableTexture, RoomObjectImageCache, SharedImageResult } from './RoomObjectImageCache';
+import { RoomVariableEnum } from './RoomVariableEnum';
+import { ObjectAvatarBlockedUpdateMessage, ObjectAvatarCarryObjectUpdateMessage, ObjectAvatarChatUpdateMessage, ObjectAvatarDanceUpdateMessage, ObjectAvatarEffectUpdateMessage, ObjectAvatarExperienceUpdateMessage, ObjectAvatarExpressionUpdateMessage, ObjectAvatarFigureUpdateMessage, ObjectAvatarFlatControlUpdateMessage, ObjectAvatarGestureUpdateMessage, ObjectAvatarGuideStatusUpdateMessage, ObjectAvatarHabbiconUpdateMessage, ObjectAvatarMutedUpdateMessage, ObjectAvatarOwnMessage, ObjectAvatarPetGestureUpdateMessage, ObjectAvatarPlayerValueUpdateMessage, ObjectAvatarPlayingGameUpdateMessage, ObjectAvatarPostureUpdateMessage, ObjectAvatarSignUpdateMessage, ObjectAvatarSleepUpdateMessage, ObjectAvatarTypingUpdateMessage, ObjectAvatarUpdateMessage, ObjectAvatarUseObjectUpdateMessage, ObjectDataUpdateMessage, ObjectGroupBadgeUpdateMessage, ObjectHeightUpdateMessage, ObjectItemDataUpdateMessage, ObjectModelDataUpdateMessage, ObjectMoveUpdateMessage, ObjectRoomColorUpdateMessage, ObjectRoomFloorHoleUpdateMessage, ObjectRoomMaskUpdateMessage, ObjectRoomPlanePropertyUpdateMessage, ObjectRoomPlaneVisibilityUpdateMessage, ObjectRoomUpdateMessage, ObjectStateUpdateMessage, RoomObjectUpdateMessage } from './messages';
+import { RoomLogic, RoomMapData, RoomPlane, RoomVisualization } from './object';
+import { RoomWindowReflectionState } from './object/visualization/RoomWindowReflectionState';
+import { RoomRenderer } from './renderer';
+import { RoomAreaSelectionManager, RoomCamera, RoomData, RoomEnterEffect, RoomFurnitureData, RoomGeometry, RoomInstanceData, RoomObjectBadgeImageAssetListener } from './utils';
+import { applyCameraMargins, clampCameraTarget, getCameraMargins, needsNewCameraTarget } from './utils/RoomCameraFollow';
+
+export class RoomEngine implements IRoomEngine, IRoomCreator, IRoomEngineServices, IRoomManagerListener, IRoomContentListener, IUpdateReceiver
+{
+    public static ROOM_OBJECT_ID: number = -1;
+    public static ROOM_OBJECT_TYPE: string = 'room';
+    private _areaHideHoleCounts = new Map<string, number>();
+
+    public static CURSOR_OBJECT_ID: number = -2;
+    public static CURSOR_OBJECT_TYPE: string = 'tile_cursor';
+
+    public static ARROW_OBJECT_ID: number = -3;
+    public static ARROW_OBJECT_TYPE: string = 'selection_arrow';
+
+    public static OVERLAY: string = 'overlay';
+    public static OBJECT_ICON_SPRITE: string = 'object_icon_sprite';
+
+    private static DRAG_THRESHOLD: number = 15;
+    private static TEMPORARY_ROOM: string = 'temporary_room';
+
+    private _roomContentLoader: IRoomContentLoader = GetRoomContentLoader();
+    private _roomSessionManager: IRoomSessionManager = GetRoomSessionManager();
+    private _sessionDataManager: ISessionDataManager = GetSessionDataManager();
+    private _roomManager: IRoomManager = GetRoomManager();
+
+    private _roomObjectEventHandler: RoomObjectEventHandler = new RoomObjectEventHandler(this);
+    private _imageObjectIdBank: NumberBank = new NumberBank(1000);
+    private _imageCallbacks: Map<string, IGetImageListener[]> = new Map();
+    private _imageCache: RoomObjectImageCache = new RoomObjectImageCache();
+    private _thumbnailObjectIdBank: NumberBank = new NumberBank(1000);
+    private _thumbnailCallbacks: Map<string, IGetImageListener[]> = new Map();
+    private _thumbnailRequestIds: Map<string, number> = new Map();
+    private _activeRoomId: number = -1;
+    private _activeRoomActiveCanvas: number = -1;
+    private _activeRoomActiveCanvasMouseX: number = 0;
+    private _activeRoomActiveCanvasMouseY: number = 0;
+    private _activeRoomIsDragged: boolean = false;
+    private _activeRoomWasDragged: boolean = false;
+    private _activeRoomDragStartX: number = 0;
+    private _activeRoomDragStartY: number = 0;
+    private _activeRoomDragX: number = 0;
+    private _activeRoomDragY: number = 0;
+    private _moveBlocked: boolean = false;
+    private _wiredClickSettings: WiredClickSettings = DEFAULT_WIRED_CLICK_SETTINGS;
+    private _roomDraggingAlwaysCenters: boolean = false;
+    private _roomAllowsDragging: boolean = true;
+    private _roomDatas: Map<number, RoomData> = new Map();
+    private _roomInstanceDatas: Map<number, RoomInstanceData> = new Map();
+    private _skipFurnitureCreationForNextFrame: boolean = false;
+    private _mouseCursorUpdate: boolean = false;
+    private _badgeListenerObjects: Map<string, RoomObjectBadgeImageAssetListener[]> = new Map();
+    private _badgeImageReadyCallback: (event: BadgeImageReadyEvent) => void = null;
+    private _areaSelectionManager: IRoomAreaSelectionManager = new RoomAreaSelectionManager(this);
+    private _roomSessionEventCallback: (event: RoomSessionEvent) => void = null;
+    private _roomObjectEventCallback: (event: RoomObjectEvent) => void = null;
+    private _disposed: boolean = false;
+
+    public async init(): Promise<void>
+    {
+        this.setPlaneRenderMode(GetConfiguration().getValue<boolean>('room.planes.direct', false));
+        // Official `room.dragging.always_center`: the room goes back to its centre when a drag ends.
+        // Optional: asked for only when the hotel set it, so a config without it logs no missing key.
+        this._roomDraggingAlwaysCenters = (GetConfiguration().definitions.has('room.dragging.always_center') && (GetConfiguration().getValue<boolean>('room.dragging.always_center', false) === true));
+
+        // Kept so dispose can take it back: an anonymous function stayed registered, and every later init added one
+        // more, so each room object event was processed once per init.
+        if(this._roomObjectEventCallback) GetRoomObjectLogicFactory().removeEventFunction(this._roomObjectEventCallback);
+        this._roomObjectEventCallback = (event: RoomObjectEvent) => this.processRoomObjectEvent(event);
+        GetRoomObjectLogicFactory().registerEventFunction(this._roomObjectEventCallback);
+
+        if(this._roomSessionEventCallback)
+        {
+            GetEventDispatcher().removeEventListener(RoomSessionEvent.STARTED, this._roomSessionEventCallback);
+            GetEventDispatcher().removeEventListener(RoomSessionEvent.ENDED, this._roomSessionEventCallback);
+        }
+
+        this._roomSessionEventCallback = (event: RoomSessionEvent) => this.onRoomSessionEvent(event);
+        GetEventDispatcher().addEventListener<RoomSessionEvent>(RoomSessionEvent.STARTED, this._roomSessionEventCallback);
+        GetEventDispatcher().addEventListener<RoomSessionEvent>(RoomSessionEvent.ENDED, this._roomSessionEventCallback);
+
+        await GetRoomMessageHandler().init();
+        await this._roomContentLoader.init();
+        await this._roomManager.init(this);
+
+        for(const roomData of this._roomDatas.values())
+        {
+            if(!roomData) continue;
+
+            this.createRoomInstance(roomData.roomId, roomData.data);
+        }
+
+        this._roomContentLoader.setIconListener(this);
+
+        this._roomManager.addUpdateCategory(RoomObjectCategory.FLOOR);
+        this._roomManager.addUpdateCategory(RoomObjectCategory.WALL);
+        this._roomManager.addUpdateCategory(RoomObjectCategory.UNIT);
+        this._roomManager.addUpdateCategory(RoomObjectCategory.CURSOR);
+        this._roomManager.addUpdateCategory(RoomObjectCategory.ROOM);
+    }
+
+    private onRoomSessionEvent(event: RoomSessionEvent): void
+    {
+        if(!(event instanceof RoomSessionEvent)) return;
+
+        switch(event.type)
+        {
+            case RoomSessionEvent.STARTED:
+                GetRoomMessageHandler().setRoomId(event.session.roomId);
+                return;
+            case RoomSessionEvent.ENDED:
+                GetRoomMessageHandler().clearRoomId();
+                this.removeRoomInstance(event.session.roomId);
+                return;
+        }
+    }
+
+    public dispose(): void
+    {
+        if(this._roomSessionEventCallback)
+        {
+            GetEventDispatcher().removeEventListener(RoomSessionEvent.STARTED, this._roomSessionEventCallback);
+            GetEventDispatcher().removeEventListener(RoomSessionEvent.ENDED, this._roomSessionEventCallback);
+            this._roomSessionEventCallback = null;
+        }
+
+        this._roomObjectEventHandler?.cancelPendingSends?.();
+
+        if(this._roomObjectEventCallback)
+        {
+            GetRoomObjectLogicFactory().removeEventFunction(this._roomObjectEventCallback);
+            this._roomObjectEventCallback = null;
+        }
+
+        GetRoomMessageHandler().dispose();
+
+        for(const roomId of this._roomDatas.keys())
+        {
+            this.removeRoomInstance(roomId);
+        }
+
+        this._roomDatas.clear();
+        this._roomInstanceDatas.clear();
+        this._imageCallbacks.clear();
+        this._thumbnailCallbacks.clear();
+        this._thumbnailRequestIds.clear();
+        this._badgeListenerObjects.clear();
+        this.removeIdleBadgeImageListener();
+        this.clearRoomObjectImageCache();
+
+        this._disposed = true;
+    }
+
+    public setActiveRoomId(roomId: number): void
+    {
+        // A wired click setting belongs to the room that sent it.
+        if(roomId !== this._activeRoomId) this._wiredClickSettings = DEFAULT_WIRED_CLICK_SETTINGS;
+
+        this._activeRoomId = roomId;
+    }
+
+    public setWiredClickSettings(userOption: number, furniOption: number): void
+    {
+        this._wiredClickSettings = normalizeWiredClickSettings(userOption, furniOption);
+    }
+
+    public get wiredClickUserOption(): number
+    {
+        return this._wiredClickSettings.userOption;
+    }
+
+    public get wiredClickFurniOption(): number
+    {
+        return this._wiredClickSettings.furniOption;
+    }
+
+    public destroyRoom(roomId: number): void
+    {
+        this.removeRoomInstance(roomId);
+    }
+
+    public getRoomInstance(roomId: number): IRoomInstance
+    {
+        return (this._roomManager && this._roomManager.getRoomInstance(this.getRoomId(roomId))) || null;
+    }
+
+    public removeRoomInstance(roomId: number): void
+    {
+        this._roomObjectEventHandler?.cancelPendingSends?.();
+
+        const instance = this.getRoomInstance(roomId);
+
+        if(instance)
+        {
+            this._roomManager && this._roomManager.removeRoomInstance(this.getRoomId(roomId));
+        }
+
+        this.pruneBadgeImageListeners();
+
+        const existing = this._roomInstanceDatas.get(roomId);
+
+        if(existing)
+        {
+            this._roomInstanceDatas.delete(existing.roomId);
+
+            existing.dispose();
+        }
+
+        RoomWindowReflectionState.clearRoom(this.getRoomId(roomId));
+
+        for(const key of Array.from(this._areaHideHoleCounts.keys()))
+        {
+            if(key.startsWith(roomId + ':')) this._areaHideHoleCounts.delete(key);
+        }
+
+        GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.DISPOSED, roomId));
+    }
+
+    public createRoomInstance(roomId: number, roomMap: RoomMapData): void
+    {
+        let floorType = '111';
+        let wallType = '201';
+        let landscapeType = '1';
+
+        if(!roomMap)
+        {
+            OctaneLogger.warn('Room property messages');
+
+            return;
+        }
+
+        const data = this._roomDatas.get(roomId);
+
+        if(data)
+        {
+            this._roomDatas.delete(roomId);
+
+            if(data.floorType) floorType = data.floorType;
+
+            if(data.wallType) wallType = data.wallType;
+
+            if(data.landscapeType) landscapeType = data.landscapeType;
+        }
+
+        const instance = this.setupRoomInstance(roomId, roomMap, floorType, wallType, landscapeType, this.getRoomInstanceModelName(roomId));
+
+        if(!instance) return;
+
+        this._roomAllowsDragging = true;
+
+        GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.INITIALIZED, roomId));
+    }
+
+    private setupRoomInstance(roomId: number, roomMap: RoomMapData, floorType: string, wallType: string, landscapeType: string, worldType: string): IRoomInstance
+    {
+        if(!this._roomManager) return;
+
+        const instance = this._roomManager.createRoomInstance(this.getRoomId(roomId));
+
+        if(!instance) return null;
+
+        const category = RoomObjectCategory.ROOM;
+
+        const roomObject = instance.createRoomObjectAndInitalize(RoomEngine.ROOM_OBJECT_ID, RoomEngine.ROOM_OBJECT_TYPE, category) as IRoomObjectController;
+
+        instance.model.setValue(RoomVariableEnum.ROOM_IS_PUBLIC, 0);
+        instance.model.setValue(RoomVariableEnum.ROOM_Z_SCALE, 1);
+
+        this.storeRoomBounds(instance, roomObject, roomMap);
+
+        const logic = (roomObject && roomObject.logic as RoomLogic) || null;
+
+        if(logic)
+        {
+            logic.initialize(roomMap);
+
+            this.sendRoomSurfaceTypes(instance, logic, floorType, wallType, landscapeType);
+        }
+
+        this.maskRoomDoors(instance, logic, roomMap);
+
+        instance.createRoomObjectAndInitalize(RoomEngine.CURSOR_OBJECT_ID, RoomEngine.CURSOR_OBJECT_TYPE, RoomObjectCategory.CURSOR);
+
+        if(GetConfiguration().getValue('enable.avatar.arrow', false)) instance.createRoomObjectAndInitalize(RoomEngine.ARROW_OBJECT_ID, RoomEngine.ARROW_OBJECT_TYPE, RoomObjectCategory.CURSOR);
+
+        return instance;
+    }
+
+    /** Stores the bounds of the room in the model and the seed of the room object that is made from them. */
+    private storeRoomBounds(instance: IRoomInstance, roomObject: IRoomObjectController, roomMap: RoomMapData): void
+    {
+        if(roomMap)
+        {
+            const dimensions = roomMap.dimensions;
+
+            if(dimensions)
+            {
+                const minX = roomMap.dimensions.minX;
+                const maxX = roomMap.dimensions.maxX;
+                const minY = roomMap.dimensions.minY;
+                const maxY = roomMap.dimensions.maxY;
+
+                instance.model.setValue(RoomVariableEnum.ROOM_MIN_X, minX);
+                instance.model.setValue(RoomVariableEnum.ROOM_MAX_X, maxX);
+                instance.model.setValue(RoomVariableEnum.ROOM_MIN_Y, minY);
+                instance.model.setValue(RoomVariableEnum.ROOM_MAX_Y, maxY);
+
+                const seed = Math.trunc((minX * 423) + (maxX * 671) + (minY * 913) + (maxY * 7509));
+
+                if(roomObject && roomObject.model) roomObject.model.setValue(RoomObjectVariable.ROOM_RANDOM_SEED, seed);
+            }
+        }
+    }
+
+    /** Gives the room logic the floor, wall and landscape types that are set, and keeps them in the model. */
+    private sendRoomSurfaceTypes(instance: IRoomInstance, logic: RoomLogic, floorType: string, wallType: string, landscapeType: string): void
+    {
+        if(floorType)
+        {
+            logic.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_FLOOR_UPDATE, floorType));
+            instance.model.setValue(RoomObjectVariable.ROOM_FLOOR_TYPE, floorType);
+        }
+
+        if(wallType)
+        {
+            logic.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_WALL_UPDATE, wallType));
+            instance.model.setValue(RoomObjectVariable.ROOM_WALL_TYPE, wallType);
+        }
+
+        if(landscapeType)
+        {
+            logic.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_LANDSCAPE_UPDATE, landscapeType));
+            instance.model.setValue(RoomObjectVariable.ROOM_LANDSCAPE_TYPE, landscapeType);
+        }
+    }
+
+    /** Masks every door of the room and publishes the position of the ones facing 90 or 180. */
+    private maskRoomDoors(instance: IRoomInstance, logic: RoomLogic, roomMap: RoomMapData): void
+    {
+        if(roomMap && roomMap.doors.length)
+        {
+            let doorIndex = 0;
+
+            while(doorIndex < roomMap.doors.length)
+            {
+                const door = roomMap.doors[doorIndex];
+
+                if(door)
+                {
+                    const doorX = door.x;
+                    const doorY = door.y;
+                    const doorZ = door.z;
+                    const doorDir = door.dir;
+                    const maskType = ObjectRoomMaskUpdateMessage.DOOR;
+                    const maskId = 'door_' + doorIndex;
+                    const maskLocation = new Vector3d(doorX, doorY, doorZ);
+
+                    logic.processUpdateMessage(new ObjectRoomMaskUpdateMessage(ObjectRoomMaskUpdateMessage.ADD_MASK, maskId, maskType, maskLocation, ObjectRoomMaskUpdateMessage.HOLE));
+
+                    if((doorDir === 90) || (doorDir === 180))
+                    {
+                        if(doorDir === 90)
+                        {
+                            instance.model.setValue(RoomObjectVariable.ROOM_DOOR_X, (doorX - 0.5));
+                            instance.model.setValue(RoomObjectVariable.ROOM_DOOR_Y, doorY);
+                        }
+
+                        if(doorDir === 180)
+                        {
+                            instance.model.setValue(RoomObjectVariable.ROOM_DOOR_X, doorX);
+                            instance.model.setValue(RoomObjectVariable.ROOM_DOOR_Y, (doorY - 0.5));
+                        }
+
+                        instance.model.setValue(RoomObjectVariable.ROOM_DOOR_Z, doorZ);
+                        instance.model.setValue(RoomObjectVariable.ROOM_DOOR_DIR, doorDir);
+                    }
+                }
+
+                doorIndex++;
+            }
+        }
+    }
+
+    public getRoomInstanceDisplay(roomId: number, id: number, width: number, height: number, scale: number): Container
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        let renderer = instance.renderer as IRoomRenderer;
+
+        if(!renderer)
+        {
+            renderer = new RoomRenderer();
+
+            if(!renderer) return null;
+        }
+
+        renderer.roomObjectVariableAccurateZ = RoomObjectVariable.OBJECT_ACCURATE_Z_VALUE;
+
+        instance.setRenderer(renderer);
+
+        const canvas = renderer.createCanvas(id, width, height, scale);
+
+        if(!canvas) return null;
+
+        canvas.setMouseListener(this._roomObjectEventHandler);
+
+        if(canvas.geometry)
+        {
+            canvas.geometry.z_scale = instance.model.getValue(RoomVariableEnum.ROOM_Z_SCALE);
+
+            const doorX = instance.model.getValue<number>(RoomObjectVariable.ROOM_DOOR_X);
+            const doorY = instance.model.getValue<number>(RoomObjectVariable.ROOM_DOOR_Y);
+            const doorZ = instance.model.getValue<number>(RoomObjectVariable.ROOM_DOOR_Z);
+            const doorDirection = instance.model.getValue<number>(RoomObjectVariable.ROOM_DOOR_DIR);
+            const vector = new Vector3d(doorX, doorY, doorZ);
+
+            let direction: IVector3D = null;
+
+            if(doorDirection === 90) direction = new Vector3d(-3000, 0, 0);
+
+            if(doorDirection === 180) direction = new Vector3d(0, -3000, 0);
+
+            canvas.geometry.setDisplacement(vector, direction);
+
+            const displayObject = canvas.master;
+
+            if(displayObject)
+            {
+                const overlay = new Container();
+
+                overlay.label = RoomEngine.OVERLAY;
+
+                displayObject.addChild(overlay);
+            }
+        }
+
+        return canvas.master;
+    }
+
+    public setRoomInstanceRenderingCanvasMask(roomId: number, canvasId: number, flag: boolean): void
+    {
+        const roomCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(roomCanvas) roomCanvas.setMask(flag);
+    }
+
+    public setRoomInstanceRenderingCanvasScale(roomId: number, canvasId: number, level: number, point: PointData = null, offsetPoint: PointData = null, isFlipForced: boolean = false, isAnimated: boolean = false): void
+    {
+        if(!GetConfiguration().getValue('room.zoom.enabled', true)) return;
+
+        // Discrete zoom levels are snapped; an animation frame passes its
+        // fractional scale through untouched.
+        if(!isAnimated && !isFlipForced) level = (((level) < 1) ? 0.5 : Math.floor(level));
+
+        const roomCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!roomCanvas) return;
+
+        // A forced flip toggles the 180 degree flip and leaves the zoom scale alone.
+        if(isFlipForced) roomCanvas.setFlip(!roomCanvas.isFlipped, point, offsetPoint);
+        else roomCanvas.setScale(level, point, offsetPoint, false);
+
+        this.syncRoomCameraLocationToCanvasOffset(roomId, roomCanvas);
+
+        GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.ROOM_ZOOMED, roomId));
+    }
+
+    private normalizeScreenOffsetForScale(offset: number, size: number, scale: number): number
+    {
+        if((scale === 0) || (scale === 1)) return offset;
+
+        const unscaledSize = (size / scale);
+        const unscaledCenter = (unscaledSize / 2);
+
+        return (unscaledCenter - ((unscaledCenter - offset) / scale));
+    }
+
+    private syncRoomCameraLocationToCanvasOffset(roomId: number, canvas: IRoomRenderingCanvas): void
+    {
+        // Offset scrolling is suspended while the room is flipped.
+        if(!this.useOffsetScrolling || !canvas || (canvas.scale <= 0) || canvas.isFlipped) return;
+
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData || !instanceData.roomCamera) return;
+
+        instanceData.roomCamera.resetLocation(new Vector3d(
+            -this.normalizeScreenOffsetForScale(canvas.screenOffsetX, canvas.width, canvas.scale),
+            -this.normalizeScreenOffsetForScale(canvas.screenOffsetY, canvas.height, canvas.scale)));
+    }
+
+    public getRoomInstanceRenderingCanvas(roomId: number, canvasId: number = -1): IRoomRenderingCanvas
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        const renderer = instance.renderer as IRoomRenderer;
+
+        if(!renderer) return null;
+
+        if(canvasId === -1) canvasId = this._activeRoomActiveCanvas;
+
+        const canvas = renderer.getCanvas(canvasId);
+
+        if(!canvas) return null;
+
+        return canvas;
+    }
+
+    public getActiveRoomInstanceRenderingCanvas(): IRoomRenderingCanvas
+    {
+        return this.getRoomInstanceRenderingCanvas(this._activeRoomId, this._activeRoomActiveCanvas);
+    }
+
+    public getRoomInstanceRenderingCanvasOffset(roomId: number, canvasId: number = -1): Point
+    {
+        if(canvasId === -1) canvasId = this._activeRoomActiveCanvas;
+
+        const renderingCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!renderingCanvas) return null;
+
+        return new Point(renderingCanvas.screenOffsetX, renderingCanvas.screenOffsetY);
+    }
+
+    public setRoomInstanceRenderingCanvasOffset(roomId: number, canvasId: number, point: Point): boolean
+    {
+        const renderingCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!renderingCanvas || !point) return false;
+
+        const x = ~~(point.x);
+        const y = ~~(point.y);
+
+        if((renderingCanvas.screenOffsetX === x) && (renderingCanvas.screenOffsetY === y)) return;
+
+        GetEventDispatcher().dispatchEvent(new RoomDragEvent(roomId, -(renderingCanvas.screenOffsetX - x), -(renderingCanvas.screenOffsetY - y)));
+
+        renderingCanvas.screenOffsetX = x;
+        renderingCanvas.screenOffsetY = y;
+
+        return true;
+    }
+
+    public getRoomInstanceRenderingCanvasScale(roomId: number = -1000, canvasId: number = -1): number
+    {
+        if(roomId === -1000) roomId = this._activeRoomId;
+
+        if(canvasId === -1) canvasId = this._activeRoomActiveCanvas;
+
+        const canvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!canvas) return 1;
+
+        return canvas.scale;
+    }
+
+    public getRoomInstanceRenderingCanvasIsFlipped(roomId: number = -1000, canvasId: number = -1): boolean
+    {
+        if(roomId === -1000) roomId = this._activeRoomId;
+
+        if(canvasId === -1) canvasId = this._activeRoomActiveCanvas;
+
+        const canvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        return !!(canvas && canvas.isFlipped);
+    }
+
+    // Signed display scale of a canvas: negative on both axes while flipped.
+    private getCanvasTransformScale(canvas: IRoomRenderingCanvas): number
+    {
+        if(!canvas) return 1;
+
+        return (canvas.isFlipped ? -canvas.scale : canvas.scale);
+    }
+
+    public initializeRoomInstanceRenderingCanvas(roomId: number, canvasId: number, width: number, height: number): void
+    {
+        const canvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!canvas) return;
+
+        canvas.initialize(width, height);
+    }
+
+    public getRoomInstanceGeometry(roomId: number, canvasId: number = -1): IRoomGeometry
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        const renderer = instance.renderer as IRoomRenderer;
+
+        if(!renderer) return null;
+
+        if(canvasId === -1) canvasId = this._activeRoomActiveCanvas;
+
+        const canvas = renderer.getCanvas(canvasId);
+
+        if(!canvas) return null;
+
+        return canvas.geometry;
+    }
+
+    public getRoomInstanceVariable<T>(roomId: number, key: string): T
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        return ((instance.model && instance.model.getValue(key)) || null);
+    }
+
+    public updateRoomInstancePlaneVisibility(roomId: number, wallVisible: boolean, floorVisible: boolean = true): boolean
+    {
+        const object = this.getRoomOwnObject(roomId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectRoomPlaneVisibilityUpdateMessage(ObjectRoomPlaneVisibilityUpdateMessage.WALL_VISIBILITY, wallVisible));
+        object.processUpdateMessage(new ObjectRoomPlaneVisibilityUpdateMessage(ObjectRoomPlaneVisibilityUpdateMessage.FLOOR_VISIBILITY, floorVisible));
+
+        return true;
+    }
+
+    public updateRoomInstancePlaneThickness(roomId: number, wallThickness: number, floorThickness: number): boolean
+    {
+        const object = this.getRoomOwnObject(roomId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectRoomPlanePropertyUpdateMessage(ObjectRoomPlanePropertyUpdateMessage.WALL_THICKNESS, wallThickness));
+        object.processUpdateMessage(new ObjectRoomPlanePropertyUpdateMessage(ObjectRoomPlanePropertyUpdateMessage.FLOOR_THICKNESS, floorThickness));
+
+        return true;
+    }
+
+    public updateRoomInstancePlaneType(roomId: number, floorType: string = null, wallType: string = null, landscapeType: string = null, skipModelUpdate: boolean = false): boolean
+    {
+        const roomObject = this.getRoomOwnObject(roomId);
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomObject)
+        {
+            let roomData = this._roomDatas.get(roomId);
+
+            if(!roomData)
+            {
+                roomData = new RoomData(roomId, null);
+
+                this._roomDatas.set(roomId, roomData);
+            }
+
+            if(floorType) roomData.floorType = floorType;
+
+            if(wallType) roomData.wallType = wallType;
+
+            if(landscapeType) roomData.landscapeType = landscapeType;
+
+            return true;
+        }
+
+        if(floorType)
+        {
+            if(roomInstance && !skipModelUpdate) roomInstance.model.setValue(RoomObjectVariable.ROOM_FLOOR_TYPE, floorType);
+
+            roomObject.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_FLOOR_UPDATE, floorType));
+        }
+
+        if(wallType)
+        {
+            if(roomInstance && !skipModelUpdate) roomInstance.model.setValue(RoomObjectVariable.ROOM_WALL_TYPE, wallType);
+
+            roomObject.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_WALL_UPDATE, wallType));
+        }
+
+        if(landscapeType)
+        {
+            if(roomInstance && !skipModelUpdate) roomInstance.model.setValue(RoomObjectVariable.ROOM_LANDSCAPE_TYPE, landscapeType);
+
+            roomObject.processUpdateMessage(new ObjectRoomUpdateMessage(ObjectRoomUpdateMessage.ROOM_LANDSCAPE_UPDATE, landscapeType));
+        }
+
+        return true;
+    }
+
+    public updateAreaHide(roomId: number, furniId: number, on: boolean, rootX: number, rootY: number, width: number, length: number, invert: boolean): boolean
+    {
+        const roomObject = this.getRoomOwnObject(roomId);
+
+        if(!roomObject || !roomObject.logic) return false;
+
+        GetEventDispatcher().dispatchEvent(new RoomEngineAreaHideStateEvent(roomId, furniId, RoomObjectCategory.FLOOR, on));
+
+        this.removeAreaHideFloorHoles(roomObject, roomId, furniId);
+
+        if(on)
+        {
+            const rectangles = this.getAreaHideHoleRectangles(roomObject, rootX, rootY, width, length, invert);
+
+            for(let index = 0; index < rectangles.length; index++)
+            {
+                const rectangle = rectangles[index];
+
+                roomObject.logic.processUpdateMessage(new ObjectRoomFloorHoleUpdateMessage(ObjectRoomFloorHoleUpdateMessage.ADD, this.getAreaHideHoleId(furniId, index), rectangle.x, rectangle.y, rectangle.width, rectangle.length, false));
+            }
+
+            this._areaHideHoleCounts.set(this.getAreaHideHoleKey(roomId, furniId), rectangles.length);
+        }
+        else
+        {
+            this._areaHideHoleCounts.delete(this.getAreaHideHoleKey(roomId, furniId));
+        }
+
+        return true;
+    }
+
+    private removeAreaHideFloorHoles(roomObject: IRoomObjectController, roomId: number, furniId: number): void
+    {
+        if(!roomObject?.logic) return;
+
+        roomObject.logic.processUpdateMessage(new ObjectRoomFloorHoleUpdateMessage(ObjectRoomFloorHoleUpdateMessage.REMOVE, furniId));
+
+        const count = this._areaHideHoleCounts.get(this.getAreaHideHoleKey(roomId, furniId)) ?? 0;
+
+        for(let index = 0; index < Math.max(count, 4); index++)
+        {
+            roomObject.logic.processUpdateMessage(new ObjectRoomFloorHoleUpdateMessage(ObjectRoomFloorHoleUpdateMessage.REMOVE, this.getAreaHideHoleId(furniId, index)));
+        }
+    }
+
+    private getAreaHideHoleKey(roomId: number, furniId: number): string
+    {
+        return roomId + ':' + furniId;
+    }
+
+    private getAreaHideHoleId(furniId: number, index: number): number
+    {
+        return -((furniId * 10000) + index + 1);
+    }
+
+    private getAreaHideHoleRectangles(roomObject: IRoomObjectController, rootX: number, rootY: number, width: number, length: number, invert: boolean): { x: number, y: number, width: number, length: number }[]
+    {
+        const rectangles: { x: number, y: number, width: number, length: number }[] = [];
+
+        if(width <= 0 || length <= 0) return rectangles;
+
+        const roomMap = roomObject?.model?.getValue<RoomMapData>(RoomObjectVariable.ROOM_MAP_DATA);
+        const tileMap = roomMap?.tileMap;
+
+        if(!tileMap?.length) return rectangles;
+
+        const areaMinX = rootX;
+        const areaMinY = rootY;
+        const areaMaxX = (rootX + width);
+        const areaMaxY = (rootY + length);
+        const pushRectangle = (x: number, y: number, rectWidth: number) =>
+        {
+            if(rectWidth <= 0) return;
+
+            rectangles.push({ x, y, width: rectWidth, length: 1 });
+        };
+
+        for(let y = 0; y < tileMap.length; y++)
+        {
+            const row = tileMap[y];
+
+            if(!row?.length) continue;
+
+            let segmentStart = -1;
+
+            for(let x = 0; x <= row.length; x++)
+            {
+                const tileHeight = (x < row.length) ? row[x]?.height : Number.NEGATIVE_INFINITY;
+                const validTile = (tileHeight >= 0);
+                const inSelection = (x >= areaMinX) && (x < areaMaxX) && (y >= areaMinY) && (y < areaMaxY);
+                const shouldHide = validTile && (invert ? !inSelection : inSelection);
+
+                if(shouldHide)
+                {
+                    if(segmentStart === -1) segmentStart = x;
+
+                    continue;
+                }
+
+                if(segmentStart !== -1)
+                {
+                    pushRectangle(segmentStart, y, (x - segmentStart));
+                    segmentStart = -1;
+                }
+            }
+        }
+
+        return rectangles;
+    }
+
+    public updateObjectRoomColor(roomId: number, color: number, light: number, backgroundOnly: boolean): boolean
+    {
+        const roomObject = this.getRoomOwnObject(roomId);
+
+        if(!roomObject || !roomObject.logic) return false;
+
+        const event = new ObjectRoomColorUpdateMessage(ObjectRoomColorUpdateMessage.BACKGROUND_COLOR, color, light, backgroundOnly);
+
+        roomObject.logic.processUpdateMessage(event);
+
+        GetEventDispatcher().dispatchEvent(new RoomBackgroundColorEvent(roomId, color, light, backgroundOnly));
+
+        return true;
+    }
+
+    public addRoomInstanceFloorHole(roomId: number, objectId: number): void
+    {
+        if(objectId < 0) return;
+
+        const roomOwnObject = this.getRoomOwnObject(roomId);
+        const roomObject = this.getRoomObjectFloor(roomId, objectId);
+
+        if(roomOwnObject && roomOwnObject.logic && roomObject && roomObject.model)
+        {
+            const location = roomObject.getLocation();
+            const sizeX = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_SIZE_X);
+            const sizeY = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_SIZE_Y);
+
+            roomOwnObject.processUpdateMessage(new ObjectRoomFloorHoleUpdateMessage(ObjectRoomFloorHoleUpdateMessage.ADD, objectId, location.x, location.y, sizeX, sizeY));
+        }
+    }
+
+    public removeRoomInstanceFloorHole(roomId: number, objectId: number): void
+    {
+        if(objectId < 0) return;
+
+        const roomOwnObject = this.getRoomOwnObject(roomId);
+
+        if(roomOwnObject)
+        {
+            roomOwnObject.processUpdateMessage(new ObjectRoomFloorHoleUpdateMessage(ObjectRoomFloorHoleUpdateMessage.REMOVE, objectId));
+        }
+    }
+
+    public setRoomEngineGameMode(roomId: number, isPlaying: boolean): void
+    {
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomInstance) return;
+
+        const mode = isPlaying ? 1 : 0;
+
+        roomInstance.model.setValue(RoomVariableEnum.IS_PLAYING_GAME, mode);
+
+        if(mode === 0)
+        {
+            GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.NORMAL_MODE, roomId));
+        }
+        else
+        {
+            GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.GAME_MODE, roomId));
+        }
+    }
+
+    // Direct planes (room.planes.direct) draw floors and walls from their tile with a GLSL ES 3.0 shader
+    // instead of baking each plane into a render texture. WebGL2 only: anything else keeps the bake.
+    public setPlaneRenderMode(direct: boolean): void
+    {
+        const renderer = GetRenderer();
+        const webGL2 = (renderer instanceof WebGLRenderer) && (renderer.context?.webGLVersion === 2);
+        const enabled = (!!direct && webGL2);
+
+        if(enabled === RoomPlane.DIRECT_DRAW) return;
+
+        RoomPlane.DIRECT_DRAW = enabled;
+
+        if(!this._roomManager?.rooms) return;
+
+        for(const instance of this._roomManager.rooms.values())
+        {
+            for(const object of instance.getRoomObjectsForCategory(RoomObjectCategory.ROOM))
+            {
+                const visualization = object?.visualization;
+
+                if(visualization instanceof RoomVisualization) visualization.rebuildPlanes();
+            }
+        }
+    }
+
+    public isRoomIdPlayingGame(roomId: number): boolean
+    {
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomInstance) return false;
+
+        return (roomInstance.model.getValue<number>(RoomVariableEnum.IS_PLAYING_GAME) > 0);
+    }
+
+    public isPlayingGame(): boolean
+    {
+        return this.isRoomIdPlayingGame(this._activeRoomId);
+    }
+
+    /** AIR `setChooserDisabled`: ConfigurationItemStates keeps the `:chooser` user list closed for visitors below rights. */
+    public setChooserDisabled(roomId: number, disabled: boolean): void
+    {
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomInstance) return;
+
+        roomInstance.model.setValue(RoomVariableEnum.CHOOSER_DISABLED, (disabled ? 1 : 0));
+    }
+
+    public get activeRoomHasChooserDisabled(): boolean
+    {
+        const roomInstance = this.getRoomInstance(this._activeRoomId);
+
+        if(!roomInstance) return false;
+
+        return (roomInstance.model.getValue<number>(RoomVariableEnum.CHOOSER_DISABLED) > 0);
+    }
+
+    /** AIR `setHanditemControlBlocked`: ConfigurationItemStates hides the give / drop handitem actions. */
+    public setHanditemControlBlocked(roomId: number, blocked: boolean): void
+    {
+        this.setRoomVariableFlag(roomId, RoomVariableEnum.HANDITEM_CONTROL_BLOCKED, blocked);
+    }
+
+    public get activeRoomHasHanditemControlBlocked(): boolean
+    {
+        return this.isRoomVariableActive(this._activeRoomId, RoomVariableEnum.HANDITEM_CONTROL_BLOCKED);
+    }
+
+    /** AIR `setFreeFurniMovementsMode`: ConfigurationItemStates lets this viewer move, rotate and use any furni. */
+    public setFreeFurniMovementsMode(roomId: number, enabled: boolean): void
+    {
+        this.setRoomVariableFlag(roomId, RoomVariableEnum.FREE_FURNI_MOVEMENTS_MODE, enabled);
+    }
+
+    public get activeRoomHasFreeFurniMovementsMode(): boolean
+    {
+        return this.isRoomVariableActive(this._activeRoomId, RoomVariableEnum.FREE_FURNI_MOVEMENTS_MODE);
+    }
+
+    /**
+     * AIR `setInvisibleFurni`: while the room's invisible-furni controller is on, every floor and wall furni hides
+     * its layers tagged `invisible` (`furniture_invisible_layer`); furni added later picks the state up on creation.
+     */
+    public setInvisibleFurni(roomId: number, invisible: boolean): void
+    {
+        if(!this.setRoomVariableFlag(roomId, RoomVariableEnum.INVISIBLE_FURNI, invisible)) return;
+
+        const value = (invisible ? 1 : 0);
+
+        for(const category of [ RoomObjectCategory.FLOOR, RoomObjectCategory.WALL ])
+        {
+            for(const roomObject of this.getRoomObjects(roomId, category))
+            {
+                (roomObject as IRoomObjectController)?.model?.setValue(RoomObjectVariable.FURNITURE_INVISIBLE_LAYER, value);
+            }
+        }
+    }
+
+    private applyInvisibleFurniState(roomId: number, roomObject: IRoomObjectController): void
+    {
+        if(!roomObject?.model) return;
+
+        roomObject.model.setValue(RoomObjectVariable.FURNITURE_INVISIBLE_LAYER, (this.isRoomVariableActive(roomId, RoomVariableEnum.INVISIBLE_FURNI) ? 1 : 0));
+    }
+
+    private setRoomVariableFlag(roomId: number, key: string, active: boolean): boolean
+    {
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomInstance) return false;
+
+        roomInstance.model.setValue(key, (active ? 1 : 0));
+
+        return true;
+    }
+
+    /** AIR `isRoomVariableActive`. */
+    public isRoomVariableActive(roomId: number, key: string): boolean
+    {
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomInstance) return false;
+
+        return (roomInstance.model.getValue<number>(key) > 0);
+    }
+
+    public update(ticker: Ticker): void
+    {
+        if(!this._roomManager) return;
+
+        const time = ticker.lastTime;
+        const update = false;
+
+        RoomEnterEffect.turnVisualizationOn();
+
+        this.processPendingFurniture();
+
+        GetTexturePool().flushReleased();
+        GetTexturePool().run();
+
+        this._roomManager.update(time, update);
+
+        this.updateRoomCameras(time);
+
+        if(this._mouseCursorUpdate) this.setPointer();
+
+        RoomEnterEffect.turnVisualizationOff();
+    }
+
+    private setPointer(): void
+    {
+        this._mouseCursorUpdate = false;
+
+        const instanceData = this.getRoomInstanceData(this._activeRoomId);
+
+        if(instanceData && instanceData.hasButtonMouseCursorOwners())
+        {
+            document.body.style.cursor = 'pointer';
+        }
+        else
+        {
+            document.body.style.cursor = 'auto';
+        }
+    }
+
+    private processPendingFurniture(): void
+    {
+        if(this._skipFurnitureCreationForNextFrame)
+        {
+            this._skipFurnitureCreationForNextFrame = false;
+
+            return;
+        }
+
+        const startTime = new Date().valueOf();
+        const furniturePerTick = 5;
+        const hasTickLimit = true;
+
+        for(const instanceData of this._roomInstanceDatas.values())
+        {
+            if(!instanceData) continue;
+
+            let pendingData: RoomFurnitureData = null;
+            let totalFurnitureAdded = 0;
+            let furnitureAdded = false;
+
+            while((pendingData = instanceData.getNextPendingFurnitureFloor()))
+            {
+                furnitureAdded = this.addObjectFurnitureFromData(instanceData.roomId, pendingData.id, pendingData);
+
+                if(hasTickLimit)
+                {
+                    if(!(++totalFurnitureAdded % furniturePerTick))
+                    {
+                        const time = new Date().valueOf();
+
+                        if((time - startTime) >= 40)
+                        {
+                            this._skipFurnitureCreationForNextFrame = true;
+
+                            break;
+                        }
+                    }
+                }
+            }
+
+            while(!this._skipFurnitureCreationForNextFrame && (pendingData = instanceData.getNextPendingFurnitureWall()))
+            {
+                furnitureAdded = this.addObjectWallItemFromData(instanceData.roomId, pendingData.id, pendingData);
+
+                if(hasTickLimit)
+                {
+                    if(!(++totalFurnitureAdded % furniturePerTick))
+                    {
+                        const time = new Date().valueOf();
+
+                        if((time - startTime) >= 40)
+                        {
+                            this._skipFurnitureCreationForNextFrame = true;
+
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if(furnitureAdded && this._roomManager)
+            {
+                const roomInstance = this._roomManager.getRoomInstance(this.getRoomId(instanceData.roomId)) as RoomInstance;
+
+                if(!roomInstance.hasUninitializedObjects()) this.objectsInitialized(instanceData.roomId.toString());
+            }
+
+            if(this._skipFurnitureCreationForNextFrame) return;
+        }
+    }
+
+    private addObjectFurnitureFromData(roomId: number, id: number, data: RoomFurnitureData): boolean
+    {
+        if(!data)
+        {
+            const instanceData = this.getRoomInstanceData(roomId);
+
+            if(instanceData) data = instanceData.getPendingFurnitureFloor(id);
+
+            if(!data) return false;
+        }
+
+        let type = data.type;
+        let didLoad = false;
+
+        if(!type)
+        {
+            type = this.getFurnitureFloorName(data.typeId);
+            didLoad = true;
+
+        }
+
+        const object = this.createRoomObjectFloor(roomId, id, type);
+
+        if(!object) return false;
+
+        const model = object.model;
+
+        if(model)
+        {
+            model.setValue(RoomObjectVariable.FURNITURE_COLOR, this.getFurnitureFloorColorIndex(data.typeId));
+            model.setValue(RoomObjectVariable.FURNITURE_TYPE_ID, data.typeId);
+            model.setValue(RoomObjectVariable.FURNITURE_AD_URL, this.getRoomObjectAdUrl(data.type));
+            model.setValue(RoomObjectVariable.FURNITURE_REAL_ROOM_OBJECT, (data.realRoomObject ? 1 : 0));
+            model.setValue(RoomObjectVariable.FURNITURE_EXPIRY_TIME, data.expiryTime);
+            model.setValue(RoomObjectVariable.FURNITURE_EXPIRTY_TIMESTAMP, GetTickerTime());
+            model.setValue(RoomObjectVariable.FURNITURE_USAGE_POLICY, data.usagePolicy);
+            model.setValue(RoomObjectVariable.FURNITURE_OWNER_ID, data.ownerId);
+            model.setValue(RoomObjectVariable.FURNITURE_OWNER_NAME, data.ownerName);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_STACK, data.allowStack ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_SIT, data.allowSit ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_LAY, data.allowLay ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_WALK, data.allowWalk ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_DIMENSIONS_X, data.dimensionsX);
+            model.setValue(RoomObjectVariable.FURNITURE_DIMENSIONS_Y, data.dimensionsY);
+            model.setValue(RoomObjectVariable.FURNITURE_TELEPORT_TARGET_ID, data.teleportTargetId);
+        }
+
+        if(!this.updateRoomObjectFloor(roomId, id, data.location, data.direction, data.state, data.data, data.extra)) return false;
+
+        if(data.sizeZ >= 0)
+        {
+            if(!this.updateRoomObjectFloorHeight(roomId, id, data.sizeZ)) return false;
+        }
+
+        if(GetEventDispatcher()) GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.ADDED, roomId, id, RoomObjectCategory.FLOOR));
+
+        const selectedRoomObjectData = this.getPlacedRoomObjectData(roomId);
+
+        if(selectedRoomObjectData && (selectedRoomObjectData.id === id) && (selectedRoomObjectData.category === RoomObjectCategory.FLOOR))
+        {
+            this.selectRoomObject(roomId, id, RoomObjectCategory.FLOOR);
+        }
+
+        if(object.isReady && data.synchronized) this.addObjectToTileMap(roomId, object);
+
+        return true;
+    }
+
+    private addObjectWallItemFromData(roomId: number, id: number, data: RoomFurnitureData): boolean
+    {
+        if(!data)
+        {
+            const instanceData = this.getRoomInstanceData(roomId);
+
+            if(instanceData) data = instanceData.getPendingFurnitureWall(id);
+
+            if(!data) return false;
+        }
+
+        let extra = '';
+
+        if(data.data) extra = data.data.getLegacyString();
+
+        let type = this.getFurnitureWallName(data.typeId, extra);
+
+        if(!type) type = '';
+
+        const object = this.createRoomObjectWall(roomId, id, type);
+
+        if(!object) return false;
+
+        const model = object.model;
+
+        if(model)
+        {
+            model.setValue(RoomObjectVariable.FURNITURE_COLOR, this.getFurnitureWallColorIndex(data.typeId));
+            model.setValue(RoomObjectVariable.FURNITURE_TYPE_ID, data.typeId);
+            model.setValue(RoomObjectVariable.FURNITURE_IS_WALL_ITEM, 1);
+            model.setValue(RoomObjectVariable.FURNITURE_AD_URL, this.getRoomObjectAdUrl(data.type));
+            model.setValue(RoomObjectVariable.FURNITURE_REAL_ROOM_OBJECT, (data.realRoomObject ? 1 : 0));
+            model.setValue(RoomObjectVariable.OBJECT_ACCURATE_Z_VALUE, 1);
+            model.setValue(RoomObjectVariable.FURNITURE_EXPIRY_TIME, data.expiryTime);
+            model.setValue(RoomObjectVariable.FURNITURE_EXPIRTY_TIMESTAMP, GetTickerTime());
+            model.setValue(RoomObjectVariable.FURNITURE_USAGE_POLICY, data.usagePolicy);
+            model.setValue(RoomObjectVariable.FURNITURE_OWNER_ID, data.ownerId);
+            model.setValue(RoomObjectVariable.FURNITURE_OWNER_NAME, data.ownerName);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_STACK, data.allowStack ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_SIT, data.allowSit ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_LAY, data.allowLay ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_ALLOW_WALK, data.allowWalk ? 1 : 0);
+            model.setValue(RoomObjectVariable.FURNITURE_DIMENSIONS_X, data.dimensionsX);
+            model.setValue(RoomObjectVariable.FURNITURE_DIMENSIONS_Y, data.dimensionsY);
+            model.setValue(RoomObjectVariable.FURNITURE_TELEPORT_TARGET_ID, data.teleportTargetId);
+        }
+
+        if(!this.updateRoomObjectWall(roomId, id, data.location, data.direction, data.state, extra)) return false;
+
+        if(GetEventDispatcher()) GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.ADDED, roomId, id, RoomObjectCategory.WALL));
+
+        const selectedRoomObjectData = this.getPlacedRoomObjectData(roomId);
+
+        if(selectedRoomObjectData && (Math.abs(selectedRoomObjectData.id) === id) && (selectedRoomObjectData.category === RoomObjectCategory.WALL))
+        {
+            this.selectRoomObject(roomId, id, RoomObjectCategory.WALL);
+        }
+
+        return true;
+    }
+
+    public setRoomSessionOwnUser(roomId: number, objectId: number): void
+    {
+        const session = this._roomSessionManager.getSession(roomId);
+
+        if(session)
+        {
+            session.setOwnRoomIndex(objectId);
+        }
+
+        const camera = this.getRoomCamera(roomId);
+
+        if(camera)
+        {
+            camera.targetId = objectId;
+            camera.targetCategory = RoomObjectCategory.UNIT;
+
+            camera.activateFollowing(this.cameraFollowDuration);
+        }
+    }
+
+    private get cameraFollowDuration(): number
+    {
+        return GetConfiguration().getValue<boolean>('room.camera.follow_user', true) ? 1000 : 0;
+    }
+
+    private updateRoomCameras(time: number): void
+    {
+        for(const instanceData of this._roomInstanceDatas.values())
+        {
+            if(!instanceData) continue;
+
+            const camera = instanceData.roomCamera;
+
+            if(!camera) continue;
+
+            let location: IVector3D = null;
+
+            const object = this.getRoomObject(instanceData.roomId, camera.targetId, camera.targetCategory);
+
+            if(object) location = object.getLocation();
+
+            if(!location) continue;
+
+            if((instanceData.roomId !== this._activeRoomId) || !this._activeRoomIsDragged)
+            {
+                this.updateRoomCamera(instanceData.roomId, 1, location, time);
+            }
+        }
+
+        if(this._activeRoomWasDragged)
+        {
+            const renderingCanvas = this.getRoomInstanceRenderingCanvas(this._activeRoomId, 1);
+
+            if(renderingCanvas) this.setRoomInstanceRenderingCanvasOffset(this._activeRoomId, 1, new Point((renderingCanvas.screenOffsetX + this._activeRoomDragX), (renderingCanvas.screenOffsetY + this._activeRoomDragY)));
+
+            this._activeRoomDragX = 0;
+            this._activeRoomDragY = 0;
+        }
+    }
+
+    private updateRoomCamera(roomId: number, canvasId: number, objectLocation: IVector3D, time: number): void
+    {
+        const renderingCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        // The camera never follows while the room is flipped.
+        if(!renderingCanvas || !instanceData || (renderingCanvas.scale !== 1) || renderingCanvas.isFlipped) return;
+
+        const roomGeometry = (renderingCanvas.geometry as RoomGeometry);
+        const roomCamera = instanceData.roomCamera;
+        const roomInstance = this.getRoomInstance(roomId);
+
+        if(!roomGeometry || !roomCamera || !roomInstance) return;
+
+        const canvasRectangle = this.getRoomCanvasRectangle(roomId, canvasId);
+
+        if(!canvasRectangle) return;
+
+        let targetZ = (Math.floor(objectLocation.z) + 1);
+        const width = Math.round(canvasRectangle.width);
+        const height = Math.round(canvasRectangle.height);
+        const bounds = this.getCanvasBoundingRectangle(canvasId);
+
+        if(bounds && ((bounds.right < 0) || (bounds.bottom < 0) || (bounds.left >= width) || (bounds.top >= height)))
+        {
+            roomCamera.reset();
+        }
+
+        if((roomCamera.screenWd !== width) || (roomCamera.screenHt !== height) || (roomCamera.scale !== roomGeometry.scale) || (roomCamera.geometryUpdateId !== roomGeometry.updateId) || !Vector3d.isEqual(objectLocation, roomCamera.targetObjectLoc) || roomCamera.isMoving)
+        {
+            roomCamera.targetObjectLoc = objectLocation;
+
+            const targetLocation = new Vector3d();
+
+            targetLocation.assign(objectLocation);
+
+            targetLocation.x = Math.round(targetLocation.x);
+            targetLocation.y = Math.round(targetLocation.y);
+
+            const roomMinX = (roomInstance.model.getValue<number>(RoomVariableEnum.ROOM_MIN_X) - 0.5);
+            const roomMinY = (roomInstance.model.getValue<number>(RoomVariableEnum.ROOM_MIN_Y) - 0.5);
+            const roomMaxX = (roomInstance.model.getValue<number>(RoomVariableEnum.ROOM_MAX_X) + 0.5);
+            const roomMaxY = (roomInstance.model.getValue<number>(RoomVariableEnum.ROOM_MAX_Y) + 0.5);
+            const roomCenterX = Math.round(((roomMinX + roomMaxX) / 2));
+            const roomCenterY = Math.round(((roomMinY + roomMaxY) / 2));
+            const roomCenterZ = 2;
+            let offsetPoint = new Point((targetLocation.x - roomCenterX), (targetLocation.y - roomCenterY));
+            const scaleX = (roomGeometry.scale / Math.sqrt(2));
+            const scaleY = (scaleX / 2);
+            const rotationMatrix = new Matrix();
+            rotationMatrix.rotate(((-(roomGeometry.direction.x + 90) / 180) * Math.PI));
+            offsetPoint = rotationMatrix.apply(offsetPoint);
+            offsetPoint.y = (offsetPoint.y * (scaleY / scaleX));
+            const halfCanvasWidthInTiles = (((canvasRectangle.width / 2) / scaleX) - 1);
+            const halfCanvasHeightInTiles = (((canvasRectangle.height / 2) / scaleY) - 1);
+
+            let boundLeft = 0;
+            let boundTop = 0;
+            let boundRight = 0;
+            let boundBottom = 0;
+            let screenPoint = roomGeometry.getScreenPoint(new Vector3d(roomCenterX, roomCenterY, roomCenterZ));
+
+            if(!screenPoint) return;
+
+            screenPoint.x = (screenPoint.x + Math.round((canvasRectangle.width / 2)));
+            screenPoint.y = (screenPoint.y + Math.round((canvasRectangle.height / 2)));
+
+            if(bounds)
+            {
+                bounds.x += -(renderingCanvas.screenOffsetX);
+                bounds.y += -(renderingCanvas.screenOffsetY);
+
+                if(((bounds.width > 1) && (bounds.height > 1)))
+                {
+                    boundLeft = (((bounds.left - screenPoint.x) - (roomGeometry.scale * 0.25)) / scaleX);
+                    boundRight = (((bounds.right - screenPoint.x) + (roomGeometry.scale * 0.25)) / scaleX);
+                    boundTop = (((bounds.top - screenPoint.y) - (roomGeometry.scale * 0.5)) / scaleY);
+                    boundBottom = (((bounds.bottom - screenPoint.y) + (roomGeometry.scale * 0.5)) / scaleY);
+                }
+                else
+                {
+                    roomGeometry.adjustLocation(new Vector3d(-30, -30), 25);
+
+                    return;
+                }
+            }
+            else
+            {
+                roomGeometry.adjustLocation(new Vector3d(0, 0), 25);
+
+                return;
+            }
+
+            const clamp = clampCameraTarget(offsetPoint, targetZ, canvasRectangle, scaleX, scaleY, halfCanvasWidthInTiles, halfCanvasHeightInTiles, boundLeft, boundTop, boundRight, boundBottom);
+
+            offsetPoint = clamp.offsetPoint;
+            targetZ = clamp.targetZ;
+
+            const { limitedX, limitedY, centeredX, centeredY } = clamp;
+
+            rotationMatrix.invert();
+            offsetPoint = rotationMatrix.apply(offsetPoint);
+            offsetPoint.x = (offsetPoint.x + roomCenterX);
+            offsetPoint.y = (offsetPoint.y + roomCenterY);
+            applyCameraMargins(canvasRectangle, getCameraMargins(roomCamera, width, height));
+
+            screenPoint = roomGeometry.getScreenPoint(targetLocation);
+
+            if(!screenPoint) return;
+
+            if(screenPoint)
+            {
+                screenPoint.x = (screenPoint.x + renderingCanvas.screenOffsetX);
+                screenPoint.y = (screenPoint.y + renderingCanvas.screenOffsetY);
+                targetLocation.z = targetZ;
+                targetLocation.x = (Math.round((offsetPoint.x * 2)) / 2);
+                targetLocation.y = (Math.round((offsetPoint.y * 2)) / 2);
+                if(!roomCamera.location)
+                {
+                    roomGeometry.location = targetLocation;
+                    if(this.useOffsetScrolling)
+                    {
+                        roomCamera.initializeLocation(new Vector3d(0, 0, 0));
+                    }
+                    else
+                    {
+                        roomCamera.initializeLocation(targetLocation);
+                    }
+                }
+                const targetScreenPoint = roomGeometry.getScreenPoint(targetLocation);
+                const offsetTarget = new Vector3d(0, 0, 0);
+                if(targetScreenPoint)
+                {
+                    offsetTarget.x = targetScreenPoint.x;
+                    offsetTarget.y = targetScreenPoint.y;
+                }
+                if(needsNewCameraTarget(screenPoint, canvasRectangle, roomCamera, centeredX, centeredY, width, height, bounds))
+                {
+                    roomCamera.limitedLocationX = limitedX;
+                    roomCamera.limitedLocationY = limitedY;
+                    if(this.useOffsetScrolling)
+                    {
+                        roomCamera.target = offsetTarget;
+                    }
+                    else
+                    {
+                        roomCamera.target = targetLocation;
+                    }
+                }
+                else
+                {
+                    if(!limitedX) roomCamera.limitedLocationX = false;
+
+                    if(!limitedY) roomCamera.limitedLocationY = false;
+                }
+            }
+
+            roomCamera.centeredLocX = centeredX;
+            roomCamera.centeredLocY = centeredY;
+            roomCamera.screenWd = width;
+            roomCamera.screenHt = height;
+            roomCamera.scale = roomGeometry.scale;
+            roomCamera.geometryUpdateId = roomGeometry.updateId;
+            roomCamera.roomWd = bounds.width;
+            roomCamera.roomHt = bounds.height;
+
+            if(!this._sessionDataManager.isCameraFollowDisabled)
+            {
+                if(this.useOffsetScrolling)
+                {
+                    roomCamera.update(time, 8);
+                }
+                else
+                {
+                    roomCamera.update(time, 0.5);
+                }
+            }
+
+            if(this.useOffsetScrolling)
+            {
+                this.setRoomInstanceRenderingCanvasOffset(this.activeRoomId, 1, new Point(-(roomCamera.location.x), -(roomCamera.location.y)));
+            }
+            else
+            {
+                roomGeometry.adjustLocation(roomCamera.location, 25);
+            }
+        }
+        else
+        {
+            roomCamera.limitedLocationX = false;
+            roomCamera.limitedLocationY = false;
+            roomCamera.centeredLocX = false;
+            roomCamera.centeredLocY = false;
+        }
+    }
+
+    private getRoomCanvasRectangle(roomId: number, canvasId: number): Rectangle
+    {
+        const canvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!canvas) return null;
+
+        return new Rectangle(0, 0, canvas.width, canvas.height);
+    }
+
+    public getRoomObjectBoundingRectangle(roomId: number, objectId: number, category: number, canvasId: number): Rectangle
+    {
+        const geometry = this.getRoomInstanceGeometry(roomId, canvasId);
+
+        if(!geometry) return null;
+
+        const roomObject = this.getRoomObject(roomId, objectId, category);
+
+        if(!roomObject) return null;
+
+        const visualization = roomObject.visualization;
+
+        if(!visualization) return null;
+
+        const rectangle = visualization.getBoundingRectangle();
+        const canvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+        const scale = this.getCanvasTransformScale(canvas);
+        const screenPoint = geometry.getScreenPoint(roomObject.getLocation());
+
+        if(!screenPoint) return null;
+
+        screenPoint.x = Math.round(screenPoint.x);
+        screenPoint.y = Math.round(screenPoint.y);
+
+        if(scale < 0)
+        {
+            // A flipped room projects the far corner of the rectangle first,
+            // so the far edge becomes the near one and the size stays positive.
+            rectangle.x = ((rectangle.x + rectangle.width) * scale);
+            rectangle.y = ((rectangle.y + rectangle.height) * scale);
+            rectangle.width = (rectangle.width * -scale);
+            rectangle.height = (rectangle.height * -scale);
+        }
+        else
+        {
+            rectangle.x = (rectangle.x * scale);
+            rectangle.y = (rectangle.y * scale);
+            rectangle.width = (rectangle.width * scale);
+            rectangle.height = (rectangle.height * scale);
+        }
+
+        screenPoint.x = (screenPoint.x * scale);
+        screenPoint.y = (screenPoint.y * scale);
+
+        rectangle.x += screenPoint.x;
+        rectangle.y += screenPoint.y;
+
+        if(!canvas) return null;
+
+        const canvasWidth = (canvas.isFlipped ? -canvas.width : canvas.width);
+        const canvasHeight = (canvas.isFlipped ? -canvas.height : canvas.height);
+
+        rectangle.x += (Math.round(canvasWidth / 2) + canvas.screenOffsetX);
+        rectangle.y += (Math.round(canvasHeight / 2) + canvas.screenOffsetY);
+
+        return rectangle;
+    }
+
+    public getCanvasBoundingRectangle(canvasId: number): Rectangle
+    {
+        return this.getRoomObjectBoundingRectangle(this._activeRoomId, RoomEngine.ROOM_OBJECT_ID, RoomObjectCategory.ROOM, canvasId);
+    }
+
+    public getFurnitureFloorName(typeId: number): string
+    {
+        return this._roomContentLoader.getFurnitureFloorNameForTypeId(typeId);
+    }
+
+    public getFurnitureWallName(typeId: number, extra: string = null): string
+    {
+        return this._roomContentLoader.getFurnitureWallNameForTypeId(typeId, extra);
+    }
+
+    public getFurnitureFloorColorIndex(typeId: number): number
+    {
+        return this._roomContentLoader.getFurnitureFloorColorIndex(typeId);
+    }
+
+    public getFurnitureWallColorIndex(typeId: number): number
+    {
+        return this._roomContentLoader.getFurnitureWallColorIndex(typeId);
+    }
+
+    private getRoomInstanceData(roomId: number): RoomInstanceData
+    {
+        const existing = this._roomInstanceDatas.get(roomId);
+
+        if(existing) return existing;
+
+        const data = new RoomInstanceData(roomId);
+
+        data.roomCamera.moveSpeed = Number(GetConfiguration().getValue<number>('room.camera.move.speed', RoomCamera.DEFAULT_MOVE_SPEED));
+
+        this._roomInstanceDatas.set(data.roomId, data);
+
+        return data;
+    }
+
+    public getRoomInstanceModelName(roomId: number): string
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.modelName;
+    }
+
+    public setRoomInstanceModelName(roomId: number, name: string): void
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return;
+
+        instanceData.setModelName(name);
+    }
+
+    public getRoomTileObjectMap(roomId: number): ITileObjectMap
+    {
+        const roomInstance = this.getRoomInstanceData(roomId);
+
+        if(!roomInstance) return null;
+
+        return roomInstance.tileObjectMap;
+    }
+
+    private getCurrentRoomCamera(): RoomCamera
+    {
+        return this.getRoomCamera(this._activeRoomId);
+    }
+
+    private getRoomCamera(roomId: number): RoomCamera
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.roomCamera;
+    }
+
+    public getSelectedRoomObjectData(roomId: number): ISelectedRoomObjectData
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.selectedObject;
+    }
+
+    public setSelectedRoomObjectData(roomId: number, data: ISelectedRoomObjectData): void
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        instanceData.setSelectedObject(data);
+
+        if(data) instanceData.setPlacedObject(null);
+    }
+
+    public getPlacedRoomObjectData(roomId: number): ISelectedRoomObjectData
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.placedObject;
+    }
+
+    public setPlacedRoomObjectData(roomId: number, data: ISelectedRoomObjectData): void
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        instanceData.setPlacedObject(data);
+    }
+
+    public cancelRoomObjectPlacement(): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        this._roomObjectEventHandler.cancelRoomObjectPlacement(this._activeRoomId);
+    }
+
+    public getFurnitureStackingHeightMap(roomId: number): IFurnitureStackingHeightMap
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.furnitureStackingHeightMap;
+    }
+
+    public setFurnitureStackingHeightMap(roomId: number, heightMap: IFurnitureStackingHeightMap): void
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        instanceData.setFurnitureStackingHeightMap(heightMap);
+    }
+
+    public getLegacyWallGeometry(roomId: number): ILegacyWallGeometry
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return null;
+
+        return instanceData.legacyGeometry;
+    }
+
+    private createRoomObjectAndInitialize(roomId: number, objectId: number, type: string, category: number): IRoomObjectController
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        return instance.createRoomObjectAndInitalize(objectId, type, category) as IRoomObjectController;
+    }
+
+    public getTotalObjectsForManager(roomId: number, category: number): number
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return 0;
+
+        return instance.getTotalObjectsForManager(category);
+    }
+
+    public getRoomObject(roomId: number, objectId: number, category: number): IRoomObjectController
+    {
+        let roomIdString = this.getRoomId(roomId);
+
+        if(roomId === 0) roomIdString = RoomEngine.TEMPORARY_ROOM;
+
+        return this.getObject(roomIdString, objectId, category);
+    }
+
+    public getObject(roomId: string, objectId: number, category: number): IRoomObjectController
+    {
+        let roomInstance: IRoomInstance = null;
+
+        if(this._roomManager) roomInstance = this._roomManager.getRoomInstance(roomId);
+
+        if(!roomInstance) return null;
+
+        let roomObject = (roomInstance.getRoomObject(objectId, category) as IRoomObjectController);
+
+        if(!roomObject)
+        {
+            switch(category)
+            {
+                case RoomObjectCategory.FLOOR:
+                    this.addObjectFurnitureFromData(this.getRoomIdFromString(roomId), objectId, null);
+
+                    roomObject = (roomInstance.getRoomObject(objectId, category) as IRoomObjectController);
+                    break;
+                case RoomObjectCategory.WALL:
+                    this.addObjectWallItemFromData(this.getRoomIdFromString(roomId), objectId, null);
+
+                    roomObject = (roomInstance.getRoomObject(objectId, category) as IRoomObjectController);
+                    break;
+            }
+        }
+
+        return roomObject;
+    }
+
+    public getRoomObjectByIndex(roomId: number, index: number, category: number): IRoomObjectController
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        return instance.getRoomObjectByIndex(index, category) as IRoomObjectController;
+    }
+
+    public getRoomObjectCategoryForType(type: string): number
+    {
+        return this._roomContentLoader.getCategoryForType(type);
+    }
+
+    public getRoomObjectCursor(roomId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), RoomEngine.CURSOR_OBJECT_ID, RoomObjectCategory.CURSOR);
+    }
+
+    public getRoomObjectSelectionArrow(roomId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), RoomEngine.ARROW_OBJECT_ID, RoomObjectCategory.CURSOR);
+    }
+
+    public getRoomOwnObject(roomId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), RoomEngine.ROOM_OBJECT_ID, RoomObjectCategory.ROOM);
+    }
+
+    public getRoomObjectUser(roomId: number, objectId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), objectId, RoomObjectCategory.UNIT);
+    }
+
+    public removeRoomObjectUser(roomId: number, objectId: number): void
+    {
+        return this.removeRoomObject(roomId, objectId, RoomObjectCategory.UNIT);
+    }
+
+    public createRoomObjectUser(roomId: number, objectId: number, type: string): IRoomObjectController
+    {
+        return this.createRoomObjectAndInitialize(roomId, objectId, type, RoomObjectCategory.UNIT);
+    }
+
+    public getRoomObjectFloor(roomId: number, objectId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), objectId, RoomObjectCategory.FLOOR);
+    }
+
+    public createRoomObjectFloor(roomId: number, id: number, type: string): IRoomObjectController
+    {
+        const roomObject = this.createRoomObjectAndInitialize(roomId, id, type, RoomObjectCategory.FLOOR);
+
+        this.applyInvisibleFurniState(roomId, roomObject);
+
+        return roomObject;
+    }
+
+    public removeRoomObjectFloor(roomId: number, objectId: number, userId: number = -1, refreshTileMap: boolean = false): void
+    {
+        const roomInstanceData = this.getRoomInstanceData(roomId);
+
+        if(roomInstanceData) roomInstanceData.removePendingFunitureFloor(objectId);
+
+        if((this._sessionDataManager.userId === userId) && FurniId.isNormalId(objectId))
+        {
+            const roomObject = this.getRoomObject(roomId, objectId, RoomObjectCategory.FLOOR);
+
+            if(roomObject)
+            {
+                const screenLocation = this.getRoomObjectScreenLocation(roomId, objectId, RoomObjectCategory.FLOOR, this._activeRoomActiveCanvas);
+
+                if(screenLocation)
+                {
+                    const disabledPickingAnimation = (roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_DISABLE_PICKING_ANIMATION) === 1);
+
+                    if(!disabledPickingAnimation)
+                    {
+                        const typeId = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_TYPE_ID);
+                        const extras = roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_EXTRAS);
+                        const dataKey = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_DATA_FORMAT);
+                        const objectData = ObjectDataFactory.getData(dataKey);
+                        const icon = this.getFurnitureFloorIcon(typeId, null, extras, objectData);
+
+                        if(icon && icon.data) this.animateIconToInventory(icon, screenLocation.x, screenLocation.y);
+                    }
+                }
+            }
+        }
+
+        this.removeRoomObject(roomId, objectId, RoomObjectCategory.FLOOR);
+        this.setMouseDefault(roomId, RoomObjectCategory.FLOOR, objectId);
+
+        if(refreshTileMap) this.refreshTileObjectMap(roomId, 'RoomEngine.disposeObjectFurniture()');
+    }
+
+    // The icon decodes after the furni is gone: a failed decode or an engine disposed meanwhile drops the animation.
+    private animateIconToInventory(icon: IImageResult, x: number, y: number): void
+    {
+        icon.getImage()
+            .then(image =>
+            {
+                if(this._disposed || !image) return;
+
+                const event = new OctaneToolbarAnimateIconEvent(image, x, y);
+
+                event.iconName = ToolbarIconEnum.INVENTORY;
+
+                GetEventDispatcher().dispatchEvent(event);
+            })
+            .catch(error => OctaneLogger.warn('Inventory icon animation', error));
+    }
+
+    public getRoomObjectWall(roomId: number, objectId: number): IRoomObjectController
+    {
+        return this.getObject(this.getRoomId(roomId), objectId, RoomObjectCategory.WALL);
+    }
+
+    public removeRoomObjectWall(roomId: number, objectId: number, userId: number = -1): void
+    {
+        if((this._sessionDataManager.userId === userId) && FurniId.isNormalId(objectId))
+        {
+            const roomObject = this.getRoomObject(roomId, objectId, RoomObjectCategory.WALL);
+
+            if(roomObject && (roomObject.type.indexOf('post_it') === -1) && (roomObject.type.indexOf('external_image_wallitem') === -1))
+            {
+                const screenLocation = this.getRoomObjectScreenLocation(roomId, objectId, RoomObjectCategory.WALL, this._activeRoomActiveCanvas);
+
+                if(screenLocation)
+                {
+                    const typeId = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_TYPE_ID);
+                    const objectData = roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_DATA);
+                    const icon = this.getFurnitureWallIcon(typeId, null, objectData);
+
+                    if(icon && icon.data) this.animateIconToInventory(icon, screenLocation.x, screenLocation.y);
+                }
+            }
+        }
+
+        this.removeRoomObject(roomId, objectId, RoomObjectCategory.WALL);
+        this.updateRoomObjectMask(roomId, objectId, false);
+        this.setMouseDefault(roomId, RoomObjectCategory.WALL, objectId);
+    }
+
+    public createRoomObjectWall(roomId: number, id: number, type: string): IRoomObjectController
+    {
+        const roomObject = this.createRoomObjectAndInitialize(roomId, id, type, RoomObjectCategory.WALL);
+
+        this.applyInvisibleFurniState(roomId, roomObject);
+
+        return roomObject;
+    }
+
+    private removeRoomObject(roomId: number, objectId: number, category: number): void
+    {
+        const instance = this.getRoomInstance(roomId);
+
+        if(!instance) return null;
+
+        instance.removeRoomObject(objectId, category);
+        this.pruneBadgeImageListeners();
+
+        if(GetEventDispatcher()) GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.REMOVED, roomId, objectId, category));
+    }
+
+    public addFurnitureFloor(roomId: number, id: number, typeId: number, location: IVector3D, direction: IVector3D, state: number, objectData: IObjectData, extra: number = NaN, expires: number = -1, usagePolicy: number = 0, ownerId: number = 0, ownerName: string = '', synchronized: boolean = true, realRoomObject: boolean = true, sizeZ: number = -1, allowStack: boolean = false, allowSit: boolean = false, allowLay: boolean = false, allowWalk: boolean = false, dimensionsX: number = 0, dimensionsY: number = 0, teleportTargetId: number = 0): boolean
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return false;
+
+        const furnitureData = new RoomFurnitureData(id, typeId, null, location, direction, state, objectData, extra, expires, usagePolicy, ownerId, ownerName, synchronized, realRoomObject, sizeZ, allowStack, allowSit, allowLay, allowWalk, dimensionsX, dimensionsY, teleportTargetId);
+
+        instanceData.addPendingFurnitureFloor(furnitureData);
+
+        return true;
+    }
+
+    public addFurnitureFloorByTypeName(roomId: number, id: number, typeName: string, location: IVector3D, direction: IVector3D, state: number, objectData: IObjectData, extra: number = NaN, expires: number = -1, usagePolicy: number = 0, ownerId: number = 0, ownerName: string = '', synchronized: boolean = true, realRoomObject: boolean = true, sizeZ: number = -1, allowStack: boolean = false, allowSit: boolean = false, allowLay: boolean = false, allowWalk: boolean = false, dimensionsX: number = 0, dimensionsY: number = 0, teleportTargetId: number = 0): boolean
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return false;
+
+        const furnitureData = new RoomFurnitureData(id, 0, typeName, location, direction, state, objectData, extra, expires, usagePolicy, ownerId, ownerName, synchronized, realRoomObject, sizeZ, allowStack, allowSit, allowLay, allowWalk, dimensionsX, dimensionsY, teleportTargetId);
+
+        instanceData.addPendingFurnitureFloor(furnitureData);
+
+        return true;
+    }
+
+    public addFurnitureWall(roomId: number, id: number, typeId: number, location: IVector3D, direction: IVector3D, state: number, extra: string, expires: number = -1, usagePolicy: number = 0, ownerId: number = 0, ownerName: string = '', realRoomObject: boolean = true, allowStack: boolean = false, allowSit: boolean = false, allowLay: boolean = false, allowWalk: boolean = false, dimensionsX: number = 0, dimensionsY: number = 0, teleportTargetId: number = 0): boolean
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return false;
+
+        const objectData = new LegacyDataType();
+
+        objectData.setString(extra);
+
+        const furnitureData = new RoomFurnitureData(id, typeId, null, location, direction, state, objectData, NaN, expires, usagePolicy, ownerId, ownerName, true, realRoomObject, -1, allowStack, allowSit, allowLay, allowWalk, dimensionsX, dimensionsY, teleportTargetId);
+
+        instanceData.addPendingFurnitureWall(furnitureData);
+
+        return true;
+    }
+
+    public updateRoomObjectFloor(roomId: number, objectId: number, location: IVector3D, direction: IVector3D, state: number, data: IObjectData, extra: number = null): boolean
+    {
+        const object = this.getRoomObjectFloor(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new RoomObjectUpdateMessage(location, direction));
+        object.processUpdateMessage(new ObjectDataUpdateMessage(state, data, extra));
+
+        if(object.model && (extra === 2147483001))
+        {
+            object.model.setValue(RoomObjectVariable.FURNITURE_IS_VARIABLE_HEIGHT, 1);
+            object.model.setValue(RoomObjectVariable.FURNITURE_IS_WALK_HEIGHT_HELPER, 1);
+        }
+
+        return true;
+    }
+
+    public updateRoomObjectWall(roomId: number, objectId: number, location: IVector3D, direction: IVector3D, state: number, extra: string = null): boolean
+    {
+        const object = this.getRoomObjectWall(roomId, objectId);
+
+        if(!object || !object.logic) return false;
+
+        const updateMessage = new RoomObjectUpdateMessage(location, direction);
+        const data = new LegacyDataType();
+        const dataUpdateMessage = new ObjectDataUpdateMessage(state, data);
+
+        data.setString(extra);
+
+        object.logic.processUpdateMessage(updateMessage);
+        object.logic.processUpdateMessage(dataUpdateMessage);
+
+        this.updateRoomObjectMask(roomId, objectId);
+
+        return true;
+    }
+
+    public updateRoomObjectWallItemData(roomId: number, objectId: number, data: string): boolean
+    {
+        const object = this.getRoomObjectWall(roomId, objectId);
+
+        if(!object || !object.logic) return false;
+
+        object.logic.processUpdateMessage(new ObjectItemDataUpdateMessage(data));
+
+        return true;
+    }
+
+    public updateRoomObjectFloorHeight(roomId: number, objectId: number, height: number): boolean
+    {
+        const object = this.getRoomObjectFloor(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectHeightUpdateMessage(null, null, height));
+
+        return true;
+    }
+
+    public updateRoomObjectFloorExpiration(roomId: number, objectId: number, expires: number): boolean
+    {
+        const object = this.getRoomObjectFloor(roomId, objectId);
+
+        if(!object) return false;
+
+        object.model.setValue(RoomObjectVariable.FURNITURE_EXPIRY_TIME, expires);
+        object.model.setValue(RoomObjectVariable.FURNITURE_EXPIRTY_TIMESTAMP, GetTickerTime());
+
+        return true;
+    }
+
+    public updateRoomObjectWallExpiration(roomId: number, objectId: number, expires: number): boolean
+    {
+        const object = this.getRoomObjectWall(roomId, objectId);
+
+        if(!object) return false;
+
+        object.model.setValue(RoomObjectVariable.FURNITURE_EXPIRY_TIME, expires);
+        object.model.setValue(RoomObjectVariable.FURNITURE_EXPIRTY_TIMESTAMP, GetTickerTime());
+
+        return true;
+    }
+
+    public updateRoomObjectMask(roomId: number, objectId: number, addMask: boolean = true): void
+    {
+        const maskName = RoomObjectCategory.WALL + '_' + objectId;
+        const roomObject = this.getRoomObjectWall(roomId, objectId);
+
+        let maskUpdate: ObjectRoomMaskUpdateMessage = null;
+
+        if(roomObject && roomObject.model)
+        {
+            if(roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_USES_PLANE_MASK) > 0)
+            {
+                const maskType = roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_PLANE_MASK_TYPE);
+                const location = roomObject.getLocation();
+
+                if(addMask) maskUpdate = new ObjectRoomMaskUpdateMessage(ObjectRoomMaskUpdateMessage.ADD_MASK, maskName, maskType, location);
+                else maskUpdate = new ObjectRoomMaskUpdateMessage(ObjectRoomMaskUpdateMessage.REMOVE_MASK, maskName);
+            }
+        }
+        else
+        {
+            maskUpdate = new ObjectRoomMaskUpdateMessage(ObjectRoomMaskUpdateMessage.REMOVE_MASK, maskName);
+        }
+
+        const roomOwnObject = this.getRoomOwnObject(roomId);
+
+        if(roomOwnObject && roomOwnObject.logic && maskUpdate) roomOwnObject.logic.processUpdateMessage(maskUpdate);
+    }
+
+    public rollRoomObjectFloor(roomId: number, objectId: number, location: IVector3D, targetLocation: IVector3D, duration: number = ObjectMoveUpdateMessage.DEFAULT_DURATION, direction: IVector3D = null, elapsed: number = 0, anchorObject: IRoomObjectController = null, anchorOffset: IVector3D = null): void
+    {
+        const object = this.getRoomObjectFloor(roomId, objectId);
+
+        if(!object) return;
+
+        object.processUpdateMessage(new ObjectMoveUpdateMessage(location, targetLocation, direction, !!targetLocation, duration, elapsed, anchorObject, anchorOffset));
+    }
+
+    public updateRoomObjectWallLocation(roomId: number, objectId: number, location: IVector3D): boolean
+    {
+        const roomObject = this.getRoomObjectWall(roomId, objectId);
+
+        if(!roomObject) return false;
+
+        if(roomObject.logic) roomObject.logic.processUpdateMessage(new ObjectMoveUpdateMessage(location, null, null));
+
+        this.updateRoomObjectMask(roomId, objectId);
+
+        return true;
+    }
+
+    public getFurniLocation(roomId: number, objectId: number, isWallItem: boolean): string
+    {
+        return isWallItem
+            ? this.getRoomObjectWall(roomId, objectId).getLocation().toString()
+            : this.getRoomObjectFloor(roomId, objectId).getLocation().toString();
+    }
+
+    public getFurniDirection(roomId: number, objectId: number, isWallItem: boolean): string
+    {
+        return isWallItem
+            ? this.getRoomObjectWall(roomId, objectId).getDirection().toString()
+            : this.getRoomObjectFloor(roomId, objectId).getDirection().toString();
+    }
+
+    public getFurniState(roomId: number, objectId: number, isWallItem: boolean): number
+    {
+        return isWallItem
+            ? this.getRoomObjectWall(roomId, objectId).getState()
+            : this.getRoomObjectFloor(roomId, objectId).getState();
+    }
+
+    public addRoomObjectUser(roomId: number, objectId: number, location: IVector3D, direction: IVector3D, headDirection: number, type: number, figure: string): boolean
+    {
+        const existing = this.getRoomObjectUser(roomId, objectId);
+
+        if(existing) return false;
+
+        let objectType = RoomObjectUserType.getTypeString(type);
+
+        if(objectType === RoomObjectUserType.PET) objectType = this.getPetType(figure);
+
+        const object = this.createRoomObjectUser(roomId, objectId, objectType);
+
+        if(!object) return false;
+
+        //object.model.setValue(RoomObjectVariable.FIGURE_HIGHLIGHT_ENABLE, 1);
+
+        object.processUpdateMessage(new ObjectAvatarUpdateMessage(this.fixedUserLocation(roomId, location), null, direction, headDirection, false, 0));
+
+        if(figure) object.processUpdateMessage(new ObjectAvatarFigureUpdateMessage(figure));
+
+        if(GetEventDispatcher()) GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.ADDED, roomId, objectId, RoomObjectCategory.UNIT));
+
+        return true;
+    }
+
+    public updateRoomObjectUserLocation(roomId: number, objectId: number, location: IVector3D, targetLocation: IVector3D, canStandUp: boolean = false, baseY: number = 0, direction: IVector3D = null, headDirection: number = NaN, skipLocationFix: boolean = false, isSlide: boolean = false, duration: number = ObjectMoveUpdateMessage.DEFAULT_DURATION, anchorObject: IRoomObjectController = null, anchorOffset: IVector3D = null): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        if(!location) location = object.getLocation();
+
+        if(!direction) direction = object.getDirection();
+
+        if(isNaN(headDirection)) headDirection = object.model.getValue<number>(RoomObjectVariable.HEAD_DIRECTION);
+
+        const fixedLoc = skipLocationFix ? location : this.fixedUserLocation(roomId, location);
+        const fixedTarget = skipLocationFix ? targetLocation : this.fixedUserLocation(roomId, targetLocation);
+
+        object.processUpdateMessage(new ObjectAvatarUpdateMessage(fixedLoc, fixedTarget, direction, headDirection, canStandUp, baseY, isSlide, duration, anchorObject, anchorOffset));
+
+        const roomSession = this._roomSessionManager.getSession(roomId);
+
+        if(roomSession && (roomSession.ownRoomIndex === objectId) && targetLocation)
+        {
+            GetEventDispatcher().dispatchEvent(new RoomToObjectOwnAvatarMoveEvent(RoomToObjectOwnAvatarMoveEvent.ROAME_MOVE_TO, targetLocation));
+        }
+
+        return true;
+    }
+
+    private fixedUserLocation(roomId: number, location: IVector3D): IVector3D
+    {
+        if(!location) return null;
+
+        const heightMap = this.getFurnitureStackingHeightMap(roomId);
+        const wallGeometry = this.getLegacyWallGeometry(roomId);
+
+        if(!heightMap || !wallGeometry) return location;
+
+        let altitude = location.z;
+        const tileHeight = heightMap.getTileHeight(location.x, location.y);
+        const wallHeight = wallGeometry.getHeight(location.x, location.y);
+
+        if((Math.abs((altitude - tileHeight)) < 0.1) && (Math.abs((tileHeight - wallHeight)) < 0.1))
+        {
+            altitude = wallGeometry.getFloorAltitude(location.x, location.y);
+        }
+
+        return new Vector3d(location.x, location.y, altitude);
+    }
+
+    public updateRoomObjectUserAction(roomId: number, objectId: number, action: string, value: number, parameter: string = null): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        let message: ObjectStateUpdateMessage = null;
+
+        switch(action)
+        {
+            case RoomObjectVariable.FIGURE_TALK:
+                message = new ObjectAvatarChatUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_SLEEP:
+                message = new ObjectAvatarSleepUpdateMessage(value === 1);
+                break;
+            case RoomObjectVariable.FIGURE_IS_TYPING:
+                message = new ObjectAvatarTypingUpdateMessage(value === 1);
+                break;
+            case RoomObjectVariable.FIGURE_IS_MUTED:
+                message = new ObjectAvatarMutedUpdateMessage(value === 1);
+                break;
+            case RoomObjectVariable.FIGURE_IS_BLOCKED:
+                message = new ObjectAvatarBlockedUpdateMessage(value === 1);
+                break;
+            case RoomObjectVariable.FIGURE_CARRY_OBJECT:
+                message = new ObjectAvatarCarryObjectUpdateMessage(value, parameter);
+                break;
+            case RoomObjectVariable.FIGURE_USE_OBJECT:
+                message = new ObjectAvatarUseObjectUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_DANCE:
+                message = new ObjectAvatarDanceUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_GAINED_EXPERIENCE:
+                message = new ObjectAvatarExperienceUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_NUMBER_VALUE:
+                message = new ObjectAvatarPlayerValueUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_SIGN:
+                message = new ObjectAvatarSignUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_EXPRESSION:
+                message = new ObjectAvatarExpressionUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_IS_PLAYING_GAME:
+                message = new ObjectAvatarPlayingGameUpdateMessage(value === 1);
+                break;
+            case RoomObjectVariable.FIGURE_GUIDE_STATUS:
+                message = new ObjectAvatarGuideStatusUpdateMessage(value);
+                break;
+            case RoomObjectVariable.FIGURE_HABBICON:
+                message = new ObjectAvatarHabbiconUpdateMessage(value);
+                break;
+        }
+
+        if(!message) return false;
+
+        object.processUpdateMessage(message);
+
+        return true;
+    }
+
+    public updateRoomObjectUserFigure(roomId: number, objectId: number, figure: string, gender: string = null, subType: string = null, isRiding: boolean = false): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarFigureUpdateMessage(figure, gender, subType, isRiding));
+
+        return true;
+    }
+
+    public updateRoomObjectUserFlatControl(roomId: number, objectId: number, level: string): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarFlatControlUpdateMessage(parseInt(level)));
+
+        return true;
+    }
+
+    public updateRoomObjectUserEffect(roomId: number, objectId: number, effectId: number, delay: number = 0): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarEffectUpdateMessage(effectId, delay));
+
+        return true;
+    }
+
+    public updateRoomObjectUserGesture(roomId: number, objectId: number, gestureId: number): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarGestureUpdateMessage(gestureId));
+
+        return true;
+    }
+
+    public updateRoomObjectUserPetGesture(roomId: number, objectId: number, gesture: string): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarPetGestureUpdateMessage(gesture));
+
+        return true;
+    }
+
+    public updateRoomObjectUserPosture(roomId: number, objectId: number, type: string, parameter: string = null): boolean
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return false;
+
+        object.processUpdateMessage(new ObjectAvatarPostureUpdateMessage(type, parameter));
+
+        return true;
+    }
+
+    public updateRoomObjectUserOwn(roomId: number, objectId: number): void
+    {
+        const object = this.getRoomObjectUser(roomId, objectId);
+
+        if(!object) return;
+
+        object.processUpdateMessage(new ObjectAvatarOwnMessage());
+    }
+
+    public useRoomObject(objectId: number, category: number): boolean
+    {
+        const roomObject = this.getRoomObject(this._activeRoomId, objectId, category);
+
+        if(roomObject)
+        {
+            const eventHandler = roomObject.logic;
+
+            if(eventHandler)
+            {
+                eventHandler.useObject();
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public objectInitialized(roomId: string, objectId: number, category: number): void
+    {
+        const id = this.getRoomIdFromString(roomId);
+
+        if(category === RoomObjectCategory.WALL)
+        {
+            this.updateRoomObjectMask(id, objectId);
+        }
+
+        const object = this.getRoomObject(id, objectId, category);
+
+        if(object && object.model && object.logic)
+        {
+            const dataFormat = object.model.getValue<number>(RoomObjectVariable.FURNITURE_DATA_FORMAT);
+
+            if(!isNaN(dataFormat))
+            {
+                const data = ObjectDataFactory.getData(dataFormat);
+
+                data.initializeFromRoomObjectModel(object.model);
+
+                object.processUpdateMessage(new ObjectDataUpdateMessage(object.getState(0), data));
+            }
+
+            GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.CONTENT_UPDATED, id, objectId, category));
+        }
+
+        if(roomId !== RoomEngine.TEMPORARY_ROOM) this.addObjectToTileMap(id, object);
+    }
+
+    public changeObjectModelData(roomId: number, objectId: number, category: number, numberKey: string, numberValue: number): boolean
+    {
+        const roomObject = this.getObject(this.getRoomId(roomId), objectId, category);
+
+        if(!roomObject || !roomObject.logic) return false;
+
+        const message = new ObjectModelDataUpdateMessage(numberKey, numberValue);
+
+        roomObject.processUpdateMessage(message);
+
+        return true;
+    }
+
+    public setRoomObjectVariableFx(roomId: number, objectId: number, category: number, entries: IRoomObjectVariableFxEntry[]): boolean
+    {
+        const roomObject = this.getObject(this.getRoomId(roomId), objectId, category);
+
+        if(!roomObject || !roomObject.model) return false;
+
+        // A new array each time: the visualization reconciles it against what it draws.
+        roomObject.model.setValue<IRoomObjectVariableFxEntry[]>(RoomObjectVariable.VARIABLE_FX_STACK, (entries ? [ ...entries ] : []));
+
+        return true;
+    }
+
+    public changeObjectState(roomId: number, objectId: number, category: number): void
+    {
+        const roomObject = this.getObject(this.getRoomId(roomId), objectId, category);
+
+        if(!roomObject || !roomObject.model) return;
+
+        let stateIndex = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_AUTOMATIC_STATE_INDEX);
+
+        if(isNaN(stateIndex)) stateIndex = 1;
+        else stateIndex = (stateIndex + 1);
+
+        roomObject.model.setValue(RoomObjectVariable.FURNITURE_AUTOMATIC_STATE_INDEX, stateIndex);
+
+        const objectDataKey = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_DATA_FORMAT);
+        const objectData = ObjectDataFactory.getData(objectDataKey);
+
+        objectData.initializeFromRoomObjectModel(roomObject.model);
+
+        if(roomObject.logic) roomObject.logic.processUpdateMessage(new ObjectDataUpdateMessage(stateIndex, objectData));
+    }
+
+    private removeIdleBadgeImageListener(): void
+    {
+        if(this._badgeListenerObjects.size || !this._badgeImageReadyCallback) return;
+
+        GetEventDispatcher()?.removeEventListener(BadgeImageReadyEvent.IMAGE_READY, this._badgeImageReadyCallback);
+        this._badgeImageReadyCallback = null;
+    }
+
+    private pruneBadgeImageListeners(): void
+    {
+        if(!this._badgeListenerObjects) return;
+
+        for(const [ badgeId, listeners ] of this._badgeListenerObjects)
+        {
+            const live = listeners.filter(listener => !!listener?.object?.logic);
+
+            if(live.length) this._badgeListenerObjects.set(badgeId, live);
+            else this._badgeListenerObjects.delete(badgeId);
+        }
+
+        this.removeIdleBadgeImageListener();
+    }
+
+    public loadRoomObjectBadgeImage(roomId: number, objectId: number, objectCategory: number, badgeId: string, groupBadge: boolean = true): void
+    {
+        let roomObject: IRoomObjectController = null;
+
+        if(roomId === 0)
+        {
+            const room = this._roomManager.getRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+            if(room) roomObject = (room.getRoomObject(objectId, objectCategory) as IRoomObjectController);
+        }
+        else
+        {
+            roomObject = this.getRoomObjectFloor(roomId, objectId);
+        }
+
+        if(!roomObject || !roomObject.logic) return;
+
+        // Temporary image objects can be disposed by their room instance directly.
+        this.pruneBadgeImageListeners();
+
+        let badgeName = (groupBadge) ? this._sessionDataManager.loadGroupBadgeImage(badgeId) : this._sessionDataManager.loadBadgeImage(badgeId);
+
+        if(!badgeName)
+        {
+            badgeName = 'loading_icon';
+
+            if(!this._badgeListenerObjects) this._badgeListenerObjects = new Map();
+
+            if(!this._badgeImageReadyCallback)
+            {
+                this._badgeImageReadyCallback = (event: BadgeImageReadyEvent) =>
+                {
+                    const listeners = this._badgeListenerObjects && this._badgeListenerObjects.get(event.badgeId);
+
+                    if(!listeners) return;
+
+                    for(const listener of listeners)
+                    {
+                        if(!listener?.object?.logic) continue;
+
+                        this.putBadgeInObjectAssets(listener.object, event.badgeId, listener.groupBadge);
+
+                        const badgeName = (listener.groupBadge) ? this._sessionDataManager.loadGroupBadgeImage(event.badgeId) : this._sessionDataManager.loadBadgeImage(event.badgeId);
+
+                        if(listener.object && listener.object.logic) listener.object.logic.processUpdateMessage(new ObjectGroupBadgeUpdateMessage(event.badgeId, badgeName));
+                    }
+
+                    this._badgeListenerObjects.delete(event.badgeId);
+
+                    this.removeIdleBadgeImageListener();
+                };
+
+                GetEventDispatcher().addEventListener(BadgeImageReadyEvent.IMAGE_READY, this._badgeImageReadyCallback);
+            }
+
+            let listeners = this._badgeListenerObjects.get(badgeId);
+
+            if(!listeners) listeners = [];
+
+            listeners.push(new RoomObjectBadgeImageAssetListener(roomObject, groupBadge));
+
+            this._badgeListenerObjects.set(badgeId, listeners);
+        }
+        else
+        {
+            this.putBadgeInObjectAssets(roomObject, badgeId, groupBadge);
+        }
+
+        roomObject.logic.processUpdateMessage(new ObjectGroupBadgeUpdateMessage(badgeId, badgeName));
+    }
+
+    private putBadgeInObjectAssets(object: IRoomObjectController, badgeId: string, groupBadge: boolean = false): void
+    {
+        const badgeName = (groupBadge) ? this._sessionDataManager.loadGroupBadgeImage(badgeId) : this._sessionDataManager.loadBadgeImage(badgeId);
+        const badgeImage = (groupBadge) ? this._sessionDataManager.getGroupBadgeImage(badgeId) : this._sessionDataManager.getBadgeImage(badgeId);
+
+        if(!badgeImage) return;
+
+        this._roomContentLoader.addAssetToCollection(object.type, badgeName, badgeImage, false);
+
+        // Every furni of the same badge used to render a new half-size copy from the texture pool, and
+        // when the collection already held it (or had none) the copy was never given back: one GPU
+        // texture lost per group furni placed or loaded, in every room visited.
+        const smallBadgeName = (badgeName + '_32');
+        const collection = this._roomContentLoader.getCollection(object.type);
+
+        if(!collection || collection.getAsset(smallBadgeName)) return;
+
+        const smallBadge = this.createHalfScaleBadge(badgeImage);
+
+        if(smallBadge && !this._roomContentLoader.addAssetToCollection(object.type, smallBadgeName, smallBadge, false))
+        {
+            GetTexturePool().putTexture(smallBadge);
+        }
+    }
+
+    private createHalfScaleBadge(texture: Texture): Texture
+    {
+        if(!texture || !texture.source) return null;
+
+        const halfWidth = Math.max(1, Math.round(texture.width / 2));
+        const halfHeight = Math.max(1, Math.round(texture.height / 2));
+
+        const matrix = new Matrix();
+
+        matrix.scale((halfWidth / texture.width), (halfHeight / texture.height));
+
+        const sprite = new Sprite(texture);
+        const result = TextureUtils.writeToTexture(sprite, GetTexturePool().getTexture(halfWidth, halfHeight), true, matrix);
+
+        // The sprite only carried the badge into the render; the badge texture itself is shared.
+        sprite.destroy();
+
+        return result;
+    }
+
+    public dispatchMouseEvent(canvasId: number, x: number, y: number, type: string, altKey: boolean, ctrlKey: boolean, shiftKey: boolean, buttonDown: boolean): void
+    {
+        const canvas = this.getRoomInstanceRenderingCanvas(this._activeRoomId, canvasId);
+
+        if(!canvas) return;
+
+        const overlay = this.getRenderingCanvasOverlay(canvas);
+        const sprite = this.getOverlayIconSprite(overlay, RoomEngine.OBJECT_ICON_SPRITE);
+
+        if(sprite)
+        {
+            const rectangle = sprite.getLocalBounds();
+
+            sprite.x = (x - (rectangle.width / 2));
+            sprite.y = (y - (rectangle.height / 2));
+        }
+
+        if(type === MouseEventType.MOUSE_CLICK && this._areaSelectionManager.finishSelecting())
+        {
+            this._areaSelectionManager.finishSelecting();
+        }
+        else
+        {
+            if(!this.handleRoomDragging(canvas, x, y, type, altKey, ctrlKey, shiftKey))
+            {
+                if(!canvas.handleMouseEvent(x, y, type, altKey, ctrlKey, shiftKey, buttonDown))
+                {
+                    let eventType: string = null;
+
+                    if(type === MouseEventType.MOUSE_CLICK)
+                    {
+                        GetEventDispatcher().dispatchEvent(new RoomEngineObjectEvent(RoomEngineObjectEvent.DESELECTED, this._activeRoomId, -1, RoomObjectCategory.MINIMUM));
+
+                        eventType = RoomObjectMouseEvent.CLICK;
+                    }
+                    else
+                    {
+                        if(type === MouseEventType.MOUSE_MOVE) eventType = RoomObjectMouseEvent.MOUSE_MOVE;
+
+                        else if(type === MouseEventType.MOUSE_DOWN) eventType = RoomObjectMouseEvent.MOUSE_DOWN;
+
+                        else if(type === MouseEventType.MOUSE_DOWN_LONG) eventType = RoomObjectMouseEvent.MOUSE_DOWN_LONG;
+
+                        else if(type === MouseEventType.MOUSE_UP) eventType = RoomObjectMouseEvent.MOUSE_UP;
+                    }
+
+                    this._roomObjectEventHandler.handleRoomObjectEvent(new RoomObjectMouseEvent(eventType, this.getRoomObject(this._activeRoomId, RoomEngine.ROOM_OBJECT_ID, RoomObjectCategory.ROOM), null, altKey), this._activeRoomId);
+                }
+            }
+        }
+
+        this._activeRoomActiveCanvas = canvasId;
+        this._activeRoomActiveCanvasMouseX = x;
+        this._activeRoomActiveCanvasMouseY = y;
+    }
+
+    private handleRoomDragging(canvas: IRoomRenderingCanvas, x: number, y: number, type: string, altKey: boolean, ctrlKey: boolean, shiftKey: boolean): boolean
+    {
+        if(this.cancelRoomDraggingForObjectOperation()) return false;
+
+        if(this.cancelRoomDraggingForAreaSelection()) return false;
+
+        const offsetX = (x - this._activeRoomActiveCanvasMouseX);
+        const offsetY = (y - this._activeRoomActiveCanvasMouseY);
+
+        if(type === MouseEventType.MOUSE_DOWN)
+        {
+            this.startRoomDragging(altKey, ctrlKey, shiftKey);
+        }
+
+        else if(type === MouseEventType.MOUSE_UP)
+        {
+            this.finishRoomDragging(canvas);
+        }
+
+        else if(type === MouseEventType.MOUSE_MOVE)
+        {
+            this.moveRoomDragging(x, y, offsetX, offsetY);
+        }
+
+        else if((type === MouseEventType.MOUSE_CLICK) || (type === MouseEventType.DOUBLE_CLICK))
+        {
+            if(this.endRoomDraggingOnClick()) return true;
+        }
+
+        return false;
+    }
+
+    /** An object is being placed or moved: the drag stops and its distance is forgotten. True when it did. */
+    private cancelRoomDraggingForObjectOperation(): boolean
+    {
+        const selectedData = this.getSelectedRoomObjectData(this._activeRoomId);
+
+        if(selectedData &&
+            ((selectedData.operation === RoomObjectOperationType.OBJECT_PLACE) ||
+            (selectedData.operation === RoomObjectOperationType.OBJECT_MOVE) ||
+            (selectedData.operation === RoomObjectOperationType.OBJECT_MOVE_TO)))
+        {
+            this._activeRoomIsDragged = false;
+            this._activeRoomWasDragged = false;
+            this._activeRoomDragX = 0;
+            this._activeRoomDragY = 0;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /** An area is being selected: the drag stops. True when it did. */
+    private cancelRoomDraggingForAreaSelection(): boolean
+    {
+        if(this._areaSelectionManager.areaSelectionState === RoomAreaSelectionManager.SELECTING)
+        {
+            this._activeRoomIsDragged = false;
+            this._activeRoomWasDragged = false;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /** A press starts a drag when no modifier key is held, the room is not being decorated and the room allows dragging. */
+    private startRoomDragging(altKey: boolean, ctrlKey: boolean, shiftKey: boolean): void
+    {
+        if(!altKey && !ctrlKey && !shiftKey && !this.isDecorating)
+        {
+            if(this._roomAllowsDragging)
+            {
+                this._activeRoomIsDragged = true;
+                this._activeRoomWasDragged = false;
+                this._activeRoomDragStartX = this._activeRoomActiveCanvasMouseX;
+                this._activeRoomDragStartY = this._activeRoomActiveCanvasMouseY;
+            }
+        }
+    }
+
+    /** A release ends the drag and, when the room was really dragged, moves the camera to where the canvas ended. */
+    private finishRoomDragging(canvas: IRoomRenderingCanvas): void
+    {
+        if(this._activeRoomIsDragged)
+        {
+            this._activeRoomIsDragged = false;
+
+            if(this._activeRoomWasDragged)
+            {
+                const instanceData = this.getRoomInstanceData(this._activeRoomId);
+
+                if(instanceData)
+                {
+                    const camera = instanceData.roomCamera;
+
+                    if(camera)
+                    {
+                        // The camera never follows a flipped room, so its
+                        // location is left alone until the flip is undone.
+                        if(this.useOffsetScrolling && !canvas.isFlipped)
+                        {
+                            if(!camera.isMoving)
+                            {
+                                camera.centeredLocX = false;
+                                camera.centeredLocY = false;
+                            }
+
+                            camera.resetLocation(new Vector3d(-(canvas.screenOffsetX), -(canvas.screenOffsetY)));
+                        }
+
+                        if(this._roomDraggingAlwaysCenters) camera.reset();
+                    }
+                }
+            }
+        }
+    }
+
+    /** A move past the threshold turns the press into a drag, and then adds up the distance. */
+    private moveRoomDragging(x: number, y: number, offsetX: number, offsetY: number): void
+    {
+        if(this._activeRoomIsDragged)
+        {
+            if(!this._activeRoomWasDragged)
+            {
+                offsetX = (x - this._activeRoomDragStartX);
+                offsetY = (y - this._activeRoomDragStartY);
+
+                if(((((offsetX <= -(RoomEngine.DRAG_THRESHOLD)) || (offsetX >= RoomEngine.DRAG_THRESHOLD)) || (offsetY <= -(RoomEngine.DRAG_THRESHOLD))) || (offsetY >= RoomEngine.DRAG_THRESHOLD)))
+                {
+                    this._activeRoomWasDragged = true;
+                }
+
+                offsetX = 0;
+                offsetY = 0;
+            }
+
+            if(((!(offsetX == 0)) || (!(offsetY == 0))))
+            {
+                this._activeRoomDragX += offsetX;
+                this._activeRoomDragY += offsetY;
+
+                this._activeRoomWasDragged = true;
+            }
+        }
+    }
+
+    /** A click ends the drag; the click that ends a real drag is swallowed. True when it was. */
+    private endRoomDraggingOnClick(): boolean
+    {
+        this._activeRoomIsDragged = false;
+
+        if(this._activeRoomWasDragged)
+        {
+            this._activeRoomWasDragged = false;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public updateMousePointer(type: string, objectId: number, objectType: string): void
+    {
+        const category = this.getRoomObjectCategoryForType(objectType);
+
+        switch(type)
+        {
+            case RoomObjectFurnitureActionEvent.MOUSE_BUTTON:
+                this.setMouseButton(this._activeRoomId, category, objectId);
+                return;
+            default:
+                this.setMouseDefault(this._activeRoomId, category, objectId);
+                return;
+        }
+    }
+
+    private setMouseButton(roomId: number, category: number, objectId: number): void
+    {
+        const session = this._roomSessionManager.getSession(roomId);
+
+        if(!session) return;
+
+        if(((category !== RoomObjectCategory.FLOOR) && (category !== RoomObjectCategory.WALL)) || ((session.controllerLevel >= RoomControllerLevel.GUEST)))
+        {
+            const instanceData = this.getRoomInstanceData(roomId);
+
+            if(instanceData)
+            {
+                if(instanceData.addButtonMouseCursorOwner((category + '_' + objectId))) this._mouseCursorUpdate = true;
+            }
+        }
+    }
+
+    private setMouseDefault(roomId: number, category: number, objectId: number): void
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(instanceData)
+        {
+            if(instanceData.removeButtonMouseCursorOwner((category + '_' + objectId))) this._mouseCursorUpdate = true;
+        }
+    }
+
+    public processRoomObjectOperation(objectId: number, category: number, operation: string): boolean
+    {
+        if(!this._roomObjectEventHandler) return false;
+
+        this._roomObjectEventHandler.modifyRoomObject(this._activeRoomId, objectId, category, operation);
+    }
+
+    public rotateActiveObjectPreview(positive: boolean): boolean
+    {
+        if(!this._roomObjectEventHandler) return false;
+
+        return this._roomObjectEventHandler.rotateActiveObjectPreview(this._activeRoomId, positive);
+    }
+
+    public modifyRoomObjectDataWithMap(objectId: number, category: number, operation: string, data: Map<string, string>): boolean
+    {
+        if(!this._roomObjectEventHandler) return false;
+
+        if(category !== RoomObjectCategory.FLOOR) return;
+
+        this._roomObjectEventHandler.modifyRoomObjectDataWithMap(this._activeRoomId, objectId, category, operation, data);
+    }
+
+    public modifyRoomObjectData(objectId: number, category: number, colorHex: string, data: string): boolean
+    {
+        if(!this._roomObjectEventHandler) return false;
+
+        if(category !== RoomObjectCategory.WALL) return;
+
+        this._roomObjectEventHandler.modifyWallItemData(this._activeRoomId, objectId, colorHex, data);
+    }
+
+    private processRoomObjectEvent(event: RoomObjectEvent): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        const roomIdString = this.getRoomObjectRoomId(event.object);
+
+        if(!roomIdString) return;
+
+        const roomId = this.getRoomIdFromString(roomIdString);
+
+        this._roomObjectEventHandler.handleRoomObjectEvent(event, roomId);
+    }
+
+    public processRoomObjectPlacement(placementSource: string, id: number, category: number, typeId: number, extra: string = null, stuffData: IObjectData = null, state: number = -1, frameNumber: number = -1, posture: string = null): boolean
+    {
+        const roomInstance = this.getRoomInstance(this._activeRoomId);
+
+        if(!roomInstance || (roomInstance.model.getValue<number>(RoomVariableEnum.ROOM_IS_PUBLIC) !== 0)) return false;
+
+        if(!this._roomObjectEventHandler) return false;
+
+        return this._roomObjectEventHandler.processRoomObjectPlacement(placementSource, this._activeRoomId, id, category, typeId, extra, stuffData, state, frameNumber, posture);
+    }
+
+    public getRoomObjectScreenLocation(roomId: number, objectId: number, objectType: number, canvasId: number = -1): Point
+    {
+        if(canvasId == -1) canvasId = this._activeRoomActiveCanvas;
+
+        const geometry = this.getRoomInstanceGeometry(roomId, canvasId);
+
+        if(!geometry) return null;
+
+        const roomObject = this.getRoomObject(roomId, objectId, objectType);
+
+        if(!roomObject) return null;
+
+        const screenPoint = geometry.getScreenPoint(roomObject.getLocation());
+
+        if(!screenPoint) return null;
+
+        const renderingCanvas = this.getRoomInstanceRenderingCanvas(roomId, canvasId);
+
+        if(!renderingCanvas) return null;
+
+        // A flipped canvas projects through the negative scale and size.
+        const scale = this.getCanvasTransformScale(renderingCanvas);
+        const canvasWidth = (renderingCanvas.isFlipped ? -renderingCanvas.width : renderingCanvas.width);
+        const canvasHeight = (renderingCanvas.isFlipped ? -renderingCanvas.height : renderingCanvas.height);
+
+        screenPoint.x = (screenPoint.x * scale);
+        screenPoint.y = (screenPoint.y * scale);
+
+        screenPoint.x += ((canvasWidth / 2) + renderingCanvas.screenOffsetX);
+        screenPoint.y += ((canvasHeight / 2) + renderingCanvas.screenOffsetY);
+
+        screenPoint.x = Math.round(screenPoint.x);
+        screenPoint.y = Math.round(screenPoint.y);
+
+        return screenPoint;
+    }
+
+    public selectRoomObject(roomId: number, objectId: number, objectCategory: number): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        this._roomObjectEventHandler.setSelectedObject(roomId, objectId, objectCategory);
+    }
+
+    public setSelectedAvatar(roomId: number, objectId: number): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        this._roomObjectEventHandler.setSelectedAvatar(roomId, objectId, true);
+    }
+
+    public clearSelectedAvatar(roomId: number): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        this._roomObjectEventHandler.clearSelectedAvatar(roomId);
+    }
+
+    public cancelRoomObjectInsert(): void
+    {
+        if(!this._roomObjectEventHandler) return;
+
+        this._roomObjectEventHandler.cancelRoomObjectInsert(this._activeRoomId);
+    }
+
+    private addOverlayIconSprite(container: Container, label: string, texture: Texture, scale: number = 1): Sprite
+    {
+        if(!container || !texture) return;
+
+        let sprite = this.getOverlayIconSprite(container, label);
+
+        if(sprite) return null;
+
+        sprite = new Sprite(texture);
+
+        sprite.label = label;
+
+        sprite.scale.set(scale);
+
+        container.addChild(sprite);
+
+        return sprite;
+    }
+
+    public onRoomContentLoaded(id: number, assetName: string, success: boolean): void
+    {
+        if(id === -1) return;
+
+        this._thumbnailObjectIdBank.freeNumber((id - 1));
+
+        const listeners = this._thumbnailCallbacks.get(assetName);
+
+        if(listeners)
+        {
+            this._thumbnailCallbacks.delete(assetName);
+            this._thumbnailRequestIds.delete(assetName);
+
+            const image = this._roomContentLoader.getImage(assetName);
+
+            if(image)
+            {
+                for(const listener of listeners)
+                {
+                    if(!listener) continue;
+
+                    listener.imageReady(new ImageResult(id, null, image));
+                }
+            }
+        }
+    }
+
+    public setObjectMoverIconSprite(objectId: number, category: number, isExistingObject: boolean, instanceData: string = null, stuffData: IObjectData = null, state: number = -1, frameNumber: number = -1, posture: string = null): void
+    {
+        let type: string = null;
+        let colorIndex = 0;
+        let imageResult: IImageResult = null;
+        const scale = 1;
+
+        if(isExistingObject)
+        {
+            imageResult = this.getRoomObjectImageUncached(this._activeRoomId, objectId, category, new Vector3d(), 1, null);
+        }
+        else
+        {
+            if(category === RoomObjectCategory.FLOOR)
+            {
+                type = this._roomContentLoader.getFurnitureFloorNameForTypeId(objectId);
+                colorIndex = this._roomContentLoader.getFurnitureFloorColorIndex(objectId);
+            }
+
+            else if(category === RoomObjectCategory.WALL)
+            {
+                type = this._roomContentLoader.getFurnitureWallNameForTypeId(objectId, instanceData);
+                colorIndex = this._roomContentLoader.getFurnitureWallColorIndex(objectId);
+            }
+
+            if(category === RoomObjectCategory.UNIT)
+            {
+                type = RoomObjectUserType.getTypeString(objectId);
+
+                if(type === 'pet')
+                {
+                    type = this.getPetType(instanceData);
+
+                    const petFigureData = new PetFigureData(instanceData);
+
+                    imageResult = this.getRoomObjectPetImageUncached(petFigureData.typeId, petFigureData.paletteId, petFigureData.color, new Vector3d(180), 64, null, true, 0, petFigureData.customParts, posture);
+                }
+                else
+                {
+                    imageResult = this.getGenericRoomObjectImageUncached(type, instanceData, new Vector3d(180), 64, null, 0, null, stuffData, state, frameNumber, posture);
+                }
+            }
+            else
+            {
+                imageResult = this.getGenericRoomObjectImageUncached(type, colorIndex.toString(), new Vector3d(), 1, null, 0, instanceData, stuffData, state, frameNumber, posture);
+            }
+        }
+
+        if(!imageResult || !imageResult.data) return;
+
+        const canvas = this.getActiveRoomInstanceRenderingCanvas();
+
+        if(!canvas) return;
+
+        const overlay = this.getRenderingCanvasOverlay(canvas);
+
+        this.removeOverlayIconSprite(overlay, RoomEngine.OBJECT_ICON_SPRITE);
+
+        const iconSprite = this.addOverlayIconSprite(overlay, RoomEngine.OBJECT_ICON_SPRITE, imageResult.data, scale);
+
+        if(iconSprite)
+        {
+            iconSprite.x = (this._activeRoomActiveCanvasMouseX - (imageResult.data.width / 2));
+            iconSprite.y = (this._activeRoomActiveCanvasMouseY - (imageResult.data.height / 2));
+        }
+    }
+
+    private resolveRoomObjectImageParams(roomId: number, objectId: number, category: number): { id: number; type: string; color: string; extras: string; data: IObjectData }
+    {
+        let id = -1;
+        let type: string = null;
+        let data: IObjectData = null;
+        let color = '';
+        let extras: string = null;
+
+        const roomIdString = this.getRoomId(roomId);
+        const roomInstance = this._roomManager.getRoomInstance(roomIdString);
+
+        if(roomInstance)
+        {
+            const roomObject = roomInstance.getRoomObject(objectId, category);
+
+            if(roomObject && roomObject.model)
+            {
+                id = roomObject.id;
+                type = roomObject.type;
+
+                switch(category)
+                {
+                    case RoomObjectCategory.FLOOR:
+                    case RoomObjectCategory.WALL: {
+                        color = (roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_COLOR).toString());
+                        extras = roomObject.model.getValue<string>(RoomObjectVariable.FURNITURE_EXTRAS);
+
+                        const dataFormat = roomObject.model.getValue<number>(RoomObjectVariable.FURNITURE_DATA_FORMAT);
+
+                        if(dataFormat !== LegacyDataType.FORMAT_KEY)
+                        {
+                            data = ObjectDataFactory.getData(dataFormat);
+
+                            data.initializeFromRoomObjectModel(roomObject.model);
+                        }
+
+                        break;
+                    }
+                    case RoomObjectCategory.UNIT:
+                        color = roomObject.model.getValue<string>(RoomObjectVariable.FIGURE);
+                        break;
+                }
+            }
+        }
+
+        return { id, type, color, extras, data };
+    }
+
+    public getRoomObjectImage(roomId: number, objectId: number, category: number, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0): IImageResult
+    {
+        if(!this._roomManager) return null;
+
+        const { id, type, color, extras, data } = this.resolveRoomObjectImageParams(roomId, objectId, category);
+
+        return this.getGenericRoomObjectImage(type, color, direction, scale, listener, bgColor, extras, data, -1, -1, null, id);
+    }
+
+    /** Same resolution as `getRoomObjectImage`, but never reads or writes the shared image cache - used for the mover icon, whose sprite outlives an eviction. */
+    private getRoomObjectImageUncached(roomId: number, objectId: number, category: number, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0): IImageResult
+    {
+        if(!this._roomManager) return null;
+
+        const { id, type, color, extras, data } = this.resolveRoomObjectImageParams(roomId, objectId, category);
+
+        return this.getGenericRoomObjectImageUncached(type, color, direction, scale, listener, bgColor, extras, data, -1, -1, null, id);
+    }
+
+    public getFurnitureFloorIconUrl(typeId: number): string
+    {
+        const type = this._roomContentLoader.getFurnitureFloorNameForTypeId(typeId);
+        const color = this._roomContentLoader.getFurnitureFloorColorIndex(typeId).toString();
+
+        return this._roomContentLoader.getAssetIconUrl(type, color);
+    }
+
+    public getFurnitureFloorIcon(typeId: number, listener: IGetImageListener, extras: string = null, objectData: IObjectData = null): IImageResult
+    {
+        return this.getFurnitureFloorImage(typeId, new Vector3d(), 1, listener, 0, extras, -1, -1, objectData);
+    }
+
+    public getFurnitureWallIconUrl(typeId: number, extra: string = null): string
+    {
+        const type: string = this._roomContentLoader.getFurnitureWallNameForTypeId(typeId, extra);
+        const color = this._roomContentLoader.getFurnitureWallColorIndex(typeId).toString();
+
+        return this._roomContentLoader.getAssetIconUrl(type, color);
+    }
+
+    public getFurnitureWallIcon(typeId: number, listener: IGetImageListener, extras: string = null): IImageResult
+    {
+        return this.getFurnitureWallImage(typeId, new Vector3d(), 1, listener, 0, extras);
+    }
+
+    public getFurnitureFloorImage(typeId: number, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0, extras: string = null, state: number = -1, frameCount: number = -1, objectData: IObjectData = null): IImageResult
+    {
+        const type: string = this._roomContentLoader.getFurnitureFloorNameForTypeId(typeId);
+        const color = this._roomContentLoader.getFurnitureFloorColorIndex(typeId).toString();
+
+        if((scale === 1) && listener)
+        {
+            return this.getGenericRoomObjectThumbnail(type, color, listener, extras, objectData);
+        }
+
+        return this.getGenericRoomObjectImage(type, color, direction, scale, listener, bgColor, extras, objectData, state, frameCount);
+    }
+
+    public getFurnitureWallImage(typeId: number, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0, extras: string = null, state: number = -1, frameCount: number = -1): IImageResult
+    {
+        const type: string = this._roomContentLoader.getFurnitureWallNameForTypeId(typeId);
+        const color = this._roomContentLoader.getFurnitureWallColorIndex(typeId).toString();
+
+        if((scale === 1) && listener)
+        {
+            return this.getGenericRoomObjectThumbnail(type, color, listener, extras, null);
+        }
+
+        return this.getGenericRoomObjectImage(type, color, direction, scale, listener, bgColor, extras, null, state, frameCount);
+    }
+
+    private resolvePetImageParams(typeId: number, paletteId: number, color: number, headOnly: boolean, customParts: IPetCustomPart[]): { type: string; value: string }
+    {
+        let value = ((((typeId + ' ') + paletteId) + ' ') + color.toString(16));
+
+        if(headOnly) value = (value + (' ' + 'head'));
+
+        if(customParts)
+        {
+            value = (value + (' ' + customParts.length));
+
+            for(const customPart of customParts)
+            {
+                value = (value + (((((' ' + customPart.layerId) + ' ') + customPart.partId) + ' ') + customPart.paletteId));
+            }
+        }
+
+        const type = this._roomContentLoader.getPetNameForType(typeId);
+
+        return { type, value };
+    }
+
+    public getRoomObjectPetImage(typeId: number, paletteId: number, color: number, direction: IVector3D, scale: number, listener: IGetImageListener, headOnly: boolean = false, bgColor: number = 0, customParts: IPetCustomPart[] = null, posture: string = null): IImageResult
+    {
+        const { type, value } = this.resolvePetImageParams(typeId, paletteId, color, headOnly, customParts);
+
+        return this.getGenericRoomObjectImage(type, value, direction, scale, listener, bgColor, null, null, -1, -1, posture);
+    }
+
+    /** Same resolution as `getRoomObjectPetImage`, but never reads or writes the shared image cache - used for the mover icon. */
+    private getRoomObjectPetImageUncached(typeId: number, paletteId: number, color: number, direction: IVector3D, scale: number, listener: IGetImageListener, headOnly: boolean = false, bgColor: number = 0, customParts: IPetCustomPart[] = null, posture: string = null): IImageResult
+    {
+        const { type, value } = this.resolvePetImageParams(typeId, paletteId, color, headOnly, customParts);
+
+        return this.getGenericRoomObjectImageUncached(type, value, direction, scale, listener, bgColor, null, null, -1, -1, posture);
+    }
+
+    /**
+     * Renders (or reuses) the image of a room object built from raw parameters.
+     * The returned texture is owned by the internal image cache: consumers that
+     * need to keep it beyond the current callback should extract via `getImage()`
+     * rather than holding onto `data`.
+     */
+    public getGenericRoomObjectImage(type: string, value: string, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0, extras: string = null, objectData: IObjectData = null, state: number = -1, frameCount: number = -1, posture: string = null, originalId: number = -1): IImageResult
+    {
+        return this.renderRoomObjectImage(type, value, direction, scale, listener, bgColor, extras, objectData, state, frameCount, posture, originalId, true);
+    }
+
+    /** Same render as `getGenericRoomObjectImage`, but never reads or writes the shared image cache - used for the mover icon, whose sprite outlives an eviction. */
+    private getGenericRoomObjectImageUncached(type: string, value: string, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number = 0, extras: string = null, objectData: IObjectData = null, state: number = -1, frameCount: number = -1, posture: string = null, originalId: number = -1): IImageResult
+    {
+        return this.renderRoomObjectImage(type, value, direction, scale, listener, bgColor, extras, objectData, state, frameCount, posture, originalId, false);
+    }
+
+    /**
+     * Shared implementation behind `getGenericRoomObjectImage` and its uncached
+     * counterpart. `useCache` gates both the lookup and the store; a non-legacy
+     * `objectData` payload (one `getLegacyString()` cannot represent uniquely)
+     * also forces the uncached path regardless of `useCache`.
+     */
+    private renderRoomObjectImage(type: string, value: string, direction: IVector3D, scale: number, listener: IGetImageListener, bgColor: number, extras: string, objectData: IObjectData, state: number, frameCount: number, posture: string, originalId: number, useCache: boolean): IImageResult
+    {
+        if(!this._roomManager) return null;
+
+        const imageResult = new ImageResult();
+
+        imageResult.id = -1;
+
+        if(!type) return imageResult;
+
+        const imageKey = buildRoomObjectImageKey(type, value, direction, scale, extras, objectData, state, frameCount, posture);
+        const cacheable = useCache && (!objectData || objectData instanceof LegacyDataType);
+        const cached = cacheable ? this._imageCache.get(imageKey) : undefined;
+
+        if(cached) return new SharedImageResult(cached);
+
+        let roomInstance = this._roomManager.getRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+        if(!roomInstance)
+        {
+            roomInstance = this._roomManager.createRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+            if(!roomInstance) return imageResult;
+        }
+
+        let objectId = this._imageObjectIdBank.reserveNumber();
+        const objectCategory = this.getRoomObjectCategoryForType(type);
+
+        if(objectId < 0) return imageResult;
+
+        objectId++;
+
+        const roomObject = (roomInstance.createRoomObjectAndInitalize(objectId, type, objectCategory) as IRoomObjectController);
+
+        if(!roomObject || !roomObject.model || !roomObject.logic) return imageResult;
+
+        const model = roomObject.model;
+
+        this.applyImageObjectParameters(model, objectCategory, type, value, extras, posture);
+
+        roomObject.setDirection(direction);
+
+        const visualization = roomObject.visualization;
+
+        if(!visualization)
+        {
+            roomInstance.removeRoomObject(objectId, objectCategory);
+
+            return imageResult;
+        }
+
+        this.sendImageObjectData(roomObject, objectData, state);
+
+        const geometry = new RoomGeometry(scale, new Vector3d(-135, 30, 0), new Vector3d(11, 11, 5));
+
+        visualization.update(geometry, 0, true, false);
+
+        this.stepImageVisualization(visualization, geometry, frameCount);
+
+        const texture = visualization.getImage();
+
+        imageResult.data = texture;
+        imageResult.id = objectId;
+
+        if(!this.isRoomContentTypeLoaded(type) && listener)
+        {
+            this.addImageListener(objectId, listener);
+
+            model.setValue(RoomObjectVariable.IMAGE_QUERY_SCALE, scale);
+            model.setValue(RoomObjectVariable.IMAGE_QUERY_KEY, cacheable ? imageKey : null);
+
+            geometry.dispose();
+
+            return imageResult;
+        }
+
+        roomInstance.removeRoomObject(objectId, objectCategory);
+
+        this._imageObjectIdBank.freeNumber((objectId - 1));
+
+        geometry.dispose();
+
+        if(!texture)
+        {
+            imageResult.id = 0;
+
+            return imageResult;
+        }
+
+        if(cacheable) return new SharedImageResult(this._imageCache.set(imageKey, texture));
+
+        return imageResult;
+    }
+
+    /** Gives the model of a temporary room object the variables its kind is drawn from: colour and extras for furniture, the figure for a user, a bot or a pet. */
+    private applyImageObjectParameters(model: IRoomObjectModel, objectCategory: number, type: string, value: string, extras: string, posture: string): void
+    {
+        switch(objectCategory)
+        {
+            case RoomObjectCategory.FLOOR:
+            case RoomObjectCategory.WALL:
+                model.setValue(RoomObjectVariable.FURNITURE_COLOR, parseInt(value));
+                model.setValue(RoomObjectVariable.FURNITURE_EXTRAS, extras);
+                break;
+            case RoomObjectCategory.UNIT:
+                if((type === RoomObjectUserType.USER) || (type === RoomObjectUserType.BOT) || (type === RoomObjectUserType.RENTABLE_BOT) || (type === RoomObjectUserType.PET))
+                {
+                    model.setValue(RoomObjectVariable.FIGURE, value);
+                }
+                else
+                {
+                    this.applyPetImageParameters(model, value, posture);
+                }
+                break;
+            case RoomObjectCategory.ROOM:
+                break;
+        }
+    }
+
+    /** Gives the model of a pet the palette, colour, head-only flag, custom parts and posture of its figure string. */
+    private applyPetImageParameters(model: IRoomObjectModel, value: string, posture: string): void
+    {
+        const figureData = new PetFigureData(value);
+
+        model.setValue(RoomObjectVariable.PET_PALETTE_INDEX, figureData.paletteId);
+        model.setValue(RoomObjectVariable.PET_COLOR, figureData.color);
+
+        if(figureData.headOnly) model.setValue(RoomObjectVariable.PET_HEAD_ONLY, 1);
+
+        if(figureData.hasCustomParts)
+        {
+            model.setValue(RoomObjectVariable.PET_CUSTOM_LAYER_IDS, figureData.customLayerIds);
+            model.setValue(RoomObjectVariable.PET_CUSTOM_PARTS_IDS, figureData.customPartIds);
+            model.setValue(RoomObjectVariable.PET_CUSTOM_PALETTE_IDS, figureData.customPaletteIds);
+        }
+
+        if(posture) model.setValue(RoomObjectVariable.FIGURE_POSTURE, posture);
+    }
+
+    /** Sends the state, or the object data, to the logic of a temporary room object. */
+    private sendImageObjectData(roomObject: IRoomObjectController, objectData: IObjectData, state: number): void
+    {
+        if((state > -1) || objectData)
+        {
+            if(objectData && (objectData.getLegacyString() !== ''))
+            {
+                roomObject.logic.processUpdateMessage(new ObjectDataUpdateMessage(parseInt(objectData.getLegacyString()), objectData));
+            }
+            else
+            {
+                roomObject.logic.processUpdateMessage(new ObjectDataUpdateMessage(state, objectData));
+            }
+        }
+    }
+
+    /** Updates the visualization once more for each frame asked for. */
+    private stepImageVisualization(visualization: IRoomObjectVisualization, geometry: RoomGeometry, frameCount: number): void
+    {
+        if(frameCount > 0)
+        {
+            let i = 0;
+
+            while(i < frameCount)
+            {
+                visualization.update(geometry, 0, true, false);
+
+                i++;
+            }
+        }
+    }
+
+    /** Keeps the listener of an image until the content of its object is loaded. */
+    private addImageListener(objectId: number, listener: IGetImageListener): void
+    {
+        let imageListeners = this._imageCallbacks.get(objectId.toString());
+
+        if(!imageListeners)
+        {
+            imageListeners = [];
+
+            this._imageCallbacks.set(objectId.toString(), imageListeners);
+        }
+
+        imageListeners.push(listener);
+    }
+
+    /**
+     * Drops cached room-object images. Call it after an asset or furnidata change
+     * that alters how a type renders. Textures handed out by the image API are
+     * owned by this cache and destroyed here. With `type`, only that type's
+     * entries are dropped; omitted, the whole cache is cleared.
+     */
+    public clearRoomObjectImageCache(type?: string): void
+    {
+        if(type) this._imageCache.clearByType(type);
+        else this._imageCache.clear();
+    }
+
+    public getGenericRoomObjectThumbnail(type: string, param: string, listener: IGetImageListener, extraData: string = null, stuffData: IObjectData = null): IImageResult
+    {
+        if(!this._roomManager) return null;
+
+        const imageResult = new ImageResult();
+
+        imageResult.id = -1;
+
+        if(!type) return imageResult;
+
+        let roomInstance = this._roomManager.getRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+        if(!roomInstance)
+        {
+            roomInstance = this._roomManager.createRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+            if(!roomInstance) return imageResult;
+        }
+
+        imageResult.data = null;
+        imageResult.image = null;
+
+        const assetName = buildContentImageKey(type, param);
+
+        const asset = this._roomContentLoader.getImage(assetName);
+
+        if(!asset && listener)
+        {
+            const contentListeners = this._thumbnailCallbacks.get(assetName);
+
+            // A download already on its way answers this listener too, under its own id: reserving another would never be returned.
+            if(contentListeners)
+            {
+                contentListeners.push(listener);
+
+                imageResult.id = (this._thumbnailRequestIds.get(assetName) ?? 0);
+
+                return imageResult;
+            }
+
+            let objectId = this._thumbnailObjectIdBank.reserveNumber();
+
+            if(objectId < 0) return imageResult;
+
+            objectId++;
+
+            this._thumbnailCallbacks.set(assetName, [ listener ]);
+            this._thumbnailRequestIds.set(assetName, objectId);
+
+            if(!this._roomContentLoader.downloadImage(objectId, type, param, null))
+            {
+                this._thumbnailCallbacks.delete(assetName);
+                this._thumbnailRequestIds.delete(assetName);
+                this._thumbnailObjectIdBank.freeNumber((objectId - 1));
+
+                imageResult.id = 0;
+
+                return imageResult;
+            }
+
+            imageResult.id = objectId;
+
+            return imageResult;
+        }
+
+        if(asset) imageResult.image = asset;
+
+        imageResult.id = 0;
+
+        return imageResult;
+    }
+
+    public initalizeTemporaryObjectsByType(type: string, contentLoaded: boolean): void
+    {
+        const roomInstance = this._roomManager.getRoomInstance(RoomEngine.TEMPORARY_ROOM);
+
+        if(!roomInstance) return;
+
+        const objectCategory = this._roomContentLoader.getCategoryForType(type);
+        const objectManager = roomInstance.getManager(objectCategory);
+
+        let geometry: RoomGeometry = null;
+        let scale = 0;
+
+        if(objectManager && objectManager.objects.length)
+        {
+            for(const roomObject of objectManager.objects.getValues())
+            {
+                if(roomObject && roomObject.model && (roomObject.type === type))
+                {
+                    const objectId = roomObject.id;
+                    const visualization = roomObject.visualization;
+
+                    let texture: Texture = null;
+
+                    if(visualization)
+                    {
+                        const imageScale = roomObject.model.getValue<number>(RoomObjectVariable.IMAGE_QUERY_SCALE);
+
+                        if(geometry && (scale !== imageScale))
+                        {
+                            geometry.dispose();
+
+                            geometry = null;
+                        }
+
+                        if(!geometry)
+                        {
+                            scale = imageScale;
+
+                            geometry = new RoomGeometry(imageScale, new Vector3d(-135, 30, 0), new Vector3d(11, 11, 5));
+                        }
+
+                        visualization.update(geometry, 0, true, false);
+
+                        texture = visualization.image;
+                    }
+
+                    const imageKey = roomObject.model.getValue<string>(RoomObjectVariable.IMAGE_QUERY_KEY);
+
+                    roomInstance.removeRoomObject(objectId, objectCategory);
+
+                    this._imageObjectIdBank.freeNumber((objectId - 1));
+
+                    this.deliverTemporaryObjectImage(objectId, texture, imageKey, contentLoaded);
+                }
+            }
+        }
+
+        if(geometry) geometry.dispose();
+    }
+
+    /** Hands the listeners of a temporary object its image, or tells them it failed. */
+    private deliverTemporaryObjectImage(objectId: number, texture: Texture, imageKey: string, contentLoaded: boolean): void
+    {
+        const imageListeners = this._imageCallbacks.get(objectId.toString());
+
+        if(imageListeners)
+        {
+            this._imageCallbacks.delete(objectId.toString());
+
+            if(texture) this.deliverImageReady(imageListeners, objectId, texture, imageKey, contentLoaded);
+            else this.deliverImageFailed(imageListeners, objectId);
+        }
+    }
+
+    /** Hands every listener the image: the cached entry when the key has one, a new entry when the content loaded, the plain texture otherwise. */
+    private deliverImageReady(imageListeners: IGetImageListener[], objectId: number, texture: Texture, imageKey: string, contentLoaded: boolean): void
+    {
+        let entry = (contentLoaded && imageKey) ? this._imageCache.get(imageKey) : null;
+
+        if(entry)
+        {
+            if((texture !== entry.texture) && !(texture as unknown as DisposableTexture).destroyed) texture.destroy(true);
+        }
+        else if(contentLoaded && imageKey)
+        {
+            entry = this._imageCache.set(imageKey, texture);
+        }
+
+        for(const imageListener of imageListeners)
+        {
+            if(!imageListener) continue;
+
+            imageListener.imageReady(entry ? new SharedImageResult(entry, objectId) : new ImageResult(objectId, texture));
+        }
+    }
+
+    /** Tells every listener that the image could not be made. */
+    private deliverImageFailed(imageListeners: IGetImageListener[], objectId: number): void
+    {
+        for(const imageListener of imageListeners)
+        {
+            if(!imageListener) continue;
+
+            imageListener.imageFailed(objectId);
+        }
+    }
+
+    public setObjectMoverIconSpriteVisible(visible: boolean): void
+    {
+        const canvas = this.getActiveRoomInstanceRenderingCanvas();
+
+        if(!canvas) return;
+
+        const overlay = this.getRenderingCanvasOverlay(canvas);
+        const sprite = this.getOverlayIconSprite(overlay, RoomEngine.OBJECT_ICON_SPRITE);
+
+        if(sprite)
+        {
+            sprite.visible = visible;
+        }
+    }
+
+    public removeObjectMoverIconSprite(): void
+    {
+        const canvas = this.getActiveRoomInstanceRenderingCanvas();
+
+        if(!canvas) return;
+
+        const overlayContainer = this.getRenderingCanvasOverlay(canvas);
+
+        this.removeOverlayIconSprite(overlayContainer, RoomEngine.OBJECT_ICON_SPRITE);
+    }
+
+    private getRenderingCanvasOverlay(canvas: IRoomRenderingCanvas): Container
+    {
+        if(!canvas) return null;
+
+        const displayObject = canvas.master;
+
+        if(!displayObject) return null;
+
+        return displayObject.getChildByLabel(RoomEngine.OVERLAY) ?? null;
+    }
+
+    private removeOverlayIconSprite(container: Container, label: string): boolean
+    {
+        if(!container) return false;
+
+        let index = (container.children.length - 1);
+
+        while(index >= 0)
+        {
+            const child = (container.getChildAt(index));
+
+            if(child)
+            {
+                if(child.label === label)
+                {
+                    container.removeChildAt(index);
+
+                    if(child.children.length)
+                    {
+                        const firstChild = (child.getChildAt(0));
+
+                        firstChild.parent.removeChild(firstChild);
+
+                        firstChild.destroy();
+                    }
+
+                    // The icon sprite owns the render texture it was handed by getRoomObjectImage.
+                    child.destroy({ texture: true, textureSource: true });
+
+                    return true;
+                }
+            }
+
+            index--;
+        }
+
+        return false;
+    }
+
+    private getOverlayIconSprite(container: Container, label: string): Sprite
+    {
+        if(!container) return null;
+
+        let index = (container.children.length - 1);
+
+        while(index >= 0)
+        {
+            const child = (container.getChildAt(index));
+
+            if(child)
+            {
+                if(child.label === label) return (child as Sprite);
+            }
+
+            index--;
+        }
+
+        return null;
+    }
+
+    public getRoomObjects(roomId: number, category: number): IRoomObject[]
+    {
+        const roomIdString = this.getRoomId(roomId);
+        const roomInstance = this._roomManager.getRoomInstance(roomIdString);
+
+
+        if(roomInstance) return roomInstance.getRoomObjectsForCategory(category);
+
+        return [];
+    }
+
+    protected addObjectToTileMap(roomId: number, roomObject: IRoomObject): void
+    {
+        const tileObjectMap = this.getRoomInstanceData(roomId).tileObjectMap;
+
+        if(tileObjectMap) tileObjectMap.addRoomObject(roomObject);
+    }
+
+    public refreshTileObjectMap(roomId: number, reason: string): void
+    {
+        const tileObjectMap = this.getRoomInstanceData(roomId).tileObjectMap;
+
+        if(tileObjectMap) tileObjectMap.populate(this.getRoomObjects(roomId, RoomObjectCategory.FLOOR));
+    }
+
+    public createTextureFromRoom(roomId: number, canvasId: number = -1, bounds: Rectangle = null): Texture
+    {
+        let canvas: IRoomRenderingCanvas = null;
+
+        if(canvasId > -1)
+        {
+            canvas = this.getRoomInstanceRenderingCanvas(this._activeRoomId, canvasId);
+        }
+        else
+        {
+            canvas = this.getActiveRoomInstanceRenderingCanvas();
+        }
+
+        let texture: Texture = null;
+
+        if(bounds)
+        {
+            texture = TextureUtils.generateTexture({
+                target: canvas.master,
+                frame: bounds,
+                resolution: 1
+            });
+        }
+        else
+        {
+            texture = canvas.getDisplayAsTexture();
+        }
+
+        return texture;
+    }
+
+    /**
+     * Behaviour from the AIR client (RoomEngine.getRenderRoomMessage): the room scene inside `rect` (canvas pixels,
+     * the viewfinder frame) as the AIR render room packet, for the server to draw. Call it when the photo is taken;
+     * the camera adds the effects and zoom later and calls compressData before sending. A thumbnail is packed at once.
+     * Returns null without a canvas, or when the canvas is flipped (AIR's camera refuses a flipped room).
+     */
+    public getRenderRoomMessage(rect: Rectangle, backgroundColor: number, isThumbnail: boolean = false, includeOwnAvatar: boolean = true, skipSpriteVisibilityChecking: boolean = false, canvasId: number = -1): RenderRoomMessageComposer
+    {
+        const canvas = (canvasId > -1) ? this.getRoomInstanceRenderingCanvas(this._activeRoomId, canvasId) : this.getActiveRoomInstanceRenderingCanvas();
+
+        if(!canvas || !rect || canvas.isFlipped) return null;
+
+        // The scene is in unscaled room pixels: map a zoomed canvas's frame back around the screen offset.
+        const scale = ((canvas.scale > 0) ? canvas.scale : 1);
+        const sceneRect = (scale === 1) ? rect : new Rectangle(
+            (canvas.screenOffsetX + ((rect.x - canvas.screenOffsetX) / scale)),
+            (canvas.screenOffsetY + ((rect.y - canvas.screenOffsetY) / scale)),
+            (rect.width / scale),
+            (rect.height / scale));
+
+        if(skipSpriteVisibilityChecking) canvas.skipSpriteVisibilityChecking();
+
+        let excludedObjectId = -1;
+
+        if(!includeOwnAvatar)
+        {
+            const session = GetRoomSessionManager().getSession(this._activeRoomId);
+
+            if(session) excludedObjectId = session.ownRoomIndex;
+        }
+
+        const scene = new RoomRenderScene(this, {
+            imageLibraryUrl: GetConfiguration().getValue<string>('image.library.url', ''),
+            groupBadgeUrl: GetConfiguration().getValue<string>('group.badge.url', '%imagerdata%'),
+            getPaletteSource: (objectType: string, paletteName: string) =>
+            {
+                const palettes = GetAssetManager().getCollection(objectType)?.data?.palettes;
+
+                if(!palettes) return null;
+
+                for(const key in palettes)
+                {
+                    const palette = palettes[key];
+
+                    if(palette && ((key === paletteName) || (String(palette.id) === paletteName))) return (palette.source ?? null);
+                }
+
+                return null;
+            }
+        });
+
+        let sprites: string = null;
+        let modifiers: string = null;
+        let planes: IPlaneDrawingData[] = null;
+
+        try
+        {
+            sprites = scene.getFurniData(sceneRect, canvas, excludedObjectId);
+            modifiers = scene.getRoomRenderingModifiers();
+            planes = scene.getRoomPlanes(sceneRect, canvas, backgroundColor);
+        }
+        finally
+        {
+            if(skipSpriteVisibilityChecking) canvas.resumeSpriteVisibilityChecking();
+        }
+
+        const composer = isThumbnail ? new RenderRoomThumbnailMessageComposer() : new RenderRoomMessageComposer();
+
+        composer.assignRenderData(planes, sprites, modifiers, this._activeRoomId, (GetSessionDataManager().securityLevel || 0));
+
+        if(isThumbnail) composer.compressData();
+
+        return composer;
+    }
+
+    public async saveTextureAsScreenshot(texture: RenderTexture, saveAsThumbnail: boolean = false): Promise<void>
+    {
+        let composer: RenderRoomMessageComposer = null;
+
+        if(saveAsThumbnail) composer = new RenderRoomThumbnailMessageComposer();
+        else composer = new RenderRoomMessageComposer();
+
+        await composer.assignBitmap(texture);
+
+        GetCommunication().connection.send(composer);
+    }
+
+    public saveBase64AsScreenshot(base64: string, saveAsThumbnail: boolean = false): void
+    {
+        let composer: RenderRoomMessageComposer = null;
+
+        if(saveAsThumbnail) composer = new RenderRoomThumbnailMessageComposer();
+        else composer = new RenderRoomMessageComposer();
+
+        composer.assignBase64(base64);
+
+        GetCommunication().connection.send(composer);
+    }
+
+    public objectsInitialized(roomIdString: string): void
+    {
+        const roomId = this.getRoomIdFromString(roomIdString);
+
+        GetEventDispatcher().dispatchEvent(new RoomEngineEvent(RoomEngineEvent.OBJECTS_INITIALIZED, roomId));
+    }
+
+    public getRoomId(id: number): string
+    {
+        return (id.toString());
+    }
+
+    private getRoomIdFromString(roomId: string): number
+    {
+        if(!roomId) return -1;
+
+        const split = roomId.split('_');
+
+        if(split.length <= 0) return -1;
+
+        return (parseInt(split[0]) || 0);
+    }
+
+    private getRoomObjectRoomId(object: IRoomObject): string
+    {
+        if(!object || !object.model) return null;
+
+        return (object.model.getValue<string>(RoomObjectVariable.OBJECT_ROOM_ID));
+    }
+
+    private getRoomObjectAdUrl(type: string): string
+    {
+        return this._roomContentLoader.getRoomObjectAdUrl(type);
+    }
+
+    public getPetTypeId(figure: string): number
+    {
+        let type = -1;
+
+        if(figure)
+        {
+            const parts = figure.split(' ');
+
+            if(parts.length > 1) type = parseInt(parts[0]);
+        }
+
+        return type;
+    }
+
+    private getPetType(type: string): string
+    {
+        if(!type) return null;
+
+        const parts = type.split(' ');
+
+        if(parts.length > 1)
+        {
+            const typeId = parseInt(parts[0]);
+
+            return this._roomContentLoader.getPetNameForType(typeId);
+        }
+
+        return null;
+    }
+
+    public isRoomContentTypeLoaded(name: string): boolean
+    {
+        return !!this._roomContentLoader.getCollection(name);
+    }
+
+    public getPetColorResult(petIndex: number, paletteIndex: number): IPetColorResult
+    {
+        return this._roomContentLoader.getPetColorResult(petIndex, paletteIndex);
+    }
+
+    public getPetColorResultsForTag(petIndex: number, tagName: string): IPetColorResult[]
+    {
+        return this._roomContentLoader.getPetColorResultsForTag(petIndex, tagName);
+    }
+
+    public deleteRoomObject(objectId: number, objectCategory: number): boolean
+    {
+        if(!this._roomObjectEventHandler || (objectCategory !== RoomObjectCategory.WALL)) return false;
+
+        return this._roomObjectEventHandler.deleteWallItem(this._activeRoomId, objectId);
+    }
+
+    public get roomManager(): IRoomManager
+    {
+        return this._roomManager;
+    }
+
+    public set roomManager(manager: IRoomManager)
+    {
+        this._roomManager = manager;
+    }
+
+    public get areaSelectionManager(): IRoomAreaSelectionManager
+    {
+        return this._areaSelectionManager;
+    }
+
+    public get objectEventHandler(): RoomObjectEventHandler
+    {
+        return this._roomObjectEventHandler;
+    }
+
+    public get activeRoomId(): number
+    {
+        return this._activeRoomId;
+    }
+
+    public get isDecorating(): boolean
+    {
+        const session = this._roomSessionManager.getSession(this._activeRoomId);
+
+        return (session && session.isDecorating) || false;
+    }
+
+    private get useOffsetScrolling(): boolean
+    {
+        return true;
+    }
+
+    public get selectedAvatarId(): number
+    {
+        if(!this._roomObjectEventHandler) return -1;
+
+        return this._roomObjectEventHandler.selectedAvatarId;
+    }
+
+    public getRoomObjectCount(roomId: number, categoryId: number): number
+    {
+        if(this._roomManager == null) return 0;
+
+        return this._roomManager.getRoomInstance(roomId.toString()).getRoomObjectsForCategory(categoryId).length;
+    }
+
+    public get moveBlocked(): boolean
+    {
+        return this._moveBlocked;
+    }
+
+    public set moveBlocked(flag: boolean)
+    {
+        this._moveBlocked = flag;
+    }
+
+    public isAreaSelectionMode(): boolean
+    {
+        return this._areaSelectionManager.areaSelectionState !== RoomAreaSelectionManager.NOT_ACTIVE;
+    }
+
+    public whereYouClickIsWhereYouGo(): boolean
+    {
+        return !this.isAreaSelectionMode();
+    }
+}

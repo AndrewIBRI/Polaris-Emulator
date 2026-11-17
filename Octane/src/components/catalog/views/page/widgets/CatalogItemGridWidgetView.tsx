@@ -1,0 +1,320 @@
+import { InfiniteGrid } from '@layout/InfiniteGrid';
+import { CSSProperties, FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CatalogType, IPurchasableOffer, localizeWithFallback } from '../../../../../api';
+import { AutoGrid, AutoGridProps, ClassicScrollAreaView } from '../../../../../common';
+import { NativeTextTree } from '../../../../../common/native-text/NativeTextTree';
+import { useCatalogActions, useCatalogData, useCatalogUiState, useInventoryFurni, useScrollWindow } from '../../../../../hooks';
+import { useCatalogStore } from '../../../../../hooks/catalog/catalogStore';
+import { replaceCatalogPageOffers } from '../../../../../hooks/catalog/useCatalog.helpers';
+import { useCatalogAdmin } from '../../../CatalogAdminContext';
+import { CatalogGridOfferView } from '../common/CatalogGridOfferView';
+import {
+    catalogPageUsesAirBaseTemplate,
+    getAirCatalogColumnCount,
+    getVisibleAirGridEntries,
+    isAirBaseCatalogOffer,
+    layoutAirCatalogOffers
+} from '../common/catalogAirGrid.helpers';
+import { shouldVirtualizeCatalogOffers } from './catalogGridPerformance.helpers';
+
+interface CatalogItemGridWidgetViewProps extends AutoGridProps {
+    tintColor?: string;
+    showPrices?: boolean;
+}
+
+export const CatalogItemGridWidgetView: FC<CatalogItemGridWidgetViewProps> = (props) => {
+    const {
+        columnCount = 5,
+        columnMinHeight = 80,
+        columnMinWidth = 40,
+        tintColor = null,
+        showPrices = true,
+        children = null,
+        className = '',
+        style = {},
+        ...rest
+    } = props;
+    const { currentOffer = null, currentPage = null } = useCatalogData();
+    const { selectCatalogOffer = null } = useCatalogActions();
+    const { currentType = CatalogType.NORMAL, setCurrentPage } = useCatalogUiState();
+    const catalogAdmin = useCatalogAdmin();
+    const adminMode = catalogAdmin?.adminMode ?? false;
+    const elementRef = useRef<HTMLDivElement>(null);
+    const [dragIndex, setDragIndex] = useState<number | null>(null);
+    const [dropIndex, setDropIndex] = useState<number | null>(null);
+    const [airColumnCount, setAirColumnCount] = useState(columnCount);
+    const baseGridClassName = columnCount > 1 && !className.split(/\s+/).includes('octane-catalog-grid') ? `${className} octane-catalog-grid`.trim() : className;
+    const isAirStandardDensity = className.split(/\s+/).includes('octane-catalog-grid-density-standard');
+
+    const offers = currentPage?.offers ?? [];
+    const hasAirBaseOffer = offers.some((offer) => isAirBaseCatalogOffer(offer, currentType));
+    const hasAirPricedOffer = offers.some((offer) => !isAirBaseCatalogOffer(offer, currentType));
+    const usesAirMixedGridTemplate = isAirStandardDensity && hasAirBaseOffer && hasAirPricedOffer;
+    // The base box is the page's, not the offer's: a page that also sells something priced keeps
+    // every tile on the priced box, so one offer missing its price cannot resize its own tile.
+    const pageUsesAirBaseTemplate = catalogPageUsesAirBaseTemplate(offers, currentType);
+    const usesAirBaseGridTemplate = isAirStandardDensity && pageUsesAirBaseTemplate;
+    const effectiveColumnMinHeight = usesAirBaseGridTemplate ? 36 : columnMinHeight;
+    const effectiveColumnMinWidth = usesAirBaseGridTemplate ? 36 : columnMinWidth;
+    const gridClassName =
+        `${baseGridClassName} ${usesAirBaseGridTemplate ? 'uses-base-grid-template' : ''} ${usesAirMixedGridTemplate ? 'uses-mixed-grid-template' : ''} ${currentType === CatalogType.BUILDER ? 'is-builder-grid' : ''}`.trim();
+    const useVirtualGrid = shouldVirtualizeCatalogOffers(offers.length, adminMode) && !usesAirMixedGridTemplate;
+    const airGridStyle = {
+        ...style,
+        ...(isAirStandardDensity && { '--octane-air-column-count': airColumnCount.toString() })
+    } as CSSProperties;
+    const mixedLayout = useMemo(() => layoutAirCatalogOffers(offers, airColumnCount, currentType), [airColumnCount, currentType, offers]);
+
+    // The grid goes back to the top when another page is opened, not whenever the same page arrives again: the page
+    // is refetched in place (it goes stale after half a minute, and choosing an offer then refetches it), which gave
+    // a new page object and threw a long page back to its first row. A search result has no page id of its own, so
+    // there the result object itself is the key.
+    const pageScrollKey = currentPage && currentPage.pageId > -1 ? `${currentType}:${currentPage.pageId}` : currentPage;
+
+    useLayoutEffect(() => {
+        if (elementRef.current) {
+            elementRef.current.scrollLeft = 0;
+            elementRef.current.scrollTop = 0;
+        }
+    }, [pageScrollKey]);
+
+    const scrollWindow = useScrollWindow(elementRef, usesAirMixedGridTemplate, pageScrollKey);
+    const clampedScrollTop = Math.min(scrollWindow.scrollTop, Math.max(0, mixedLayout.height - scrollWindow.viewportHeight));
+    const visibleMixedEntries = useMemo(
+        () => getVisibleAirGridEntries(mixedLayout.entries, clampedScrollTop, scrollWindow.viewportHeight),
+        [mixedLayout, clampedScrollTop, scrollWindow.viewportHeight]
+    );
+    const renderedMixedEntries = useMemo(
+        () =>
+            dragIndex === null || visibleMixedEntries.some((entry) => entry.index === dragIndex)
+                ? visibleMixedEntries
+                : [...visibleMixedEntries, ...mixedLayout.entries.filter((entry) => entry.index === dragIndex)],
+        [visibleMixedEntries, mixedLayout, dragIndex]
+    );
+    const { isVisible: inventoryVisible = false } = useInventoryFurni();
+
+    // A deep link (the infostand's "buy", a `catalog/open/offerId/…` link) selected an offer of this page: bring it
+    // into view. Declared after the page's scroll reset, so it wins over it; handled once per request.
+    const revealOffer = useCatalogStore((state) => state.revealOffer);
+    const revealedNonceRef = useRef(0);
+    const revealIndex = revealOffer ? offers.findIndex((offer) => offer.offerId === revealOffer.offerId) : -1;
+    const revealNonce = revealOffer?.nonce ?? 0;
+
+    useLayoutEffect(() => {
+        if (revealIndex < 0 || revealedNonceRef.current === revealNonce) return;
+
+        // The virtual grid scrolls itself (it owns the scroll element); see the `reveal` prop below.
+        if (useVirtualGrid) {
+            revealedNonceRef.current = revealNonce;
+            return;
+        }
+
+        const element = elementRef.current;
+
+        if (!element) return;
+
+        if (usesAirMixedGridTemplate) {
+            const entry = mixedLayout.entries.find((candidate) => candidate.index === revealIndex);
+
+            if (!entry) return;
+
+            element.scrollTop = Math.max(0, entry.y - (element.clientHeight - entry.height) / 2);
+        } else {
+            const tile = element.querySelector<HTMLElement>(`[data-offer-index="${revealIndex}"]`);
+
+            if (!tile) return;
+
+            const tileRect = tile.getBoundingClientRect();
+            const viewRect = element.getBoundingClientRect();
+
+            element.scrollTop = Math.max(0, element.scrollTop + (tileRect.top - viewRect.top) - (element.clientHeight - tileRect.height) / 2);
+        }
+
+        revealedNonceRef.current = revealNonce;
+    }, [revealIndex, revealNonce, useVirtualGrid, usesAirMixedGridTemplate, mixedLayout]);
+
+    useLayoutEffect(() => {
+        if (!isAirStandardDensity || !offers.length) {
+            setAirColumnCount(columnCount);
+            return;
+        }
+
+        const element = elementRef.current;
+        if (!element) return;
+
+        const recompute = () => {
+            const computedStyle = window.getComputedStyle(element);
+            const parsedLeft = Number.parseFloat(computedStyle.paddingLeft);
+            const parsedRight = Number.parseFloat(computedStyle.paddingRight);
+            const horizontalPadding = (Number.isFinite(parsedLeft) ? parsedLeft : 0) + (Number.isFinite(parsedRight) ? parsedRight : 0);
+            const availableWidth = element.clientWidth - horizontalPadding;
+
+            if (availableWidth <= 0) return;
+
+            setAirColumnCount(getAirCatalogColumnCount(offers, availableWidth, currentType));
+        };
+
+        recompute();
+
+        if (typeof ResizeObserver === 'undefined') return;
+
+        const observer = new ResizeObserver(recompute);
+        observer.observe(element);
+
+        return () => observer.disconnect();
+    }, [columnCount, currentType, isAirStandardDensity, offers]);
+
+    const handleDragStart = useCallback((index: number) => {
+        setDragIndex(index);
+    }, []);
+
+    const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+        e.preventDefault();
+        setDropIndex(index);
+    }, []);
+
+    const handleDrop = useCallback(
+        (index: number) => {
+            if (dragIndex !== null && dragIndex !== index && currentPage?.offers) {
+                const reordered = [...currentPage.offers];
+                const [moved] = reordered.splice(dragIndex, 1);
+
+                reordered.splice(index, 0, moved);
+
+                setCurrentPage(replaceCatalogPageOffers(currentPage, reordered));
+
+                const orders = reordered.map((o, i) => ({ id: o.offerId, orderNumber: i }));
+
+                catalogAdmin?.reorderOffers(orders, localizeWithFallback('octane.catalog.reordered_offers_on_page_page_id', 'Reordered offers on page #%page_id%', ['page_id'], [String(currentPage.pageId)]));
+            }
+
+            setDragIndex(null);
+            setDropIndex(null);
+        },
+        [dragIndex, currentPage, catalogAdmin, setCurrentPage]
+    );
+
+    const handleDragEnd = useCallback(() => {
+        setDragIndex(null);
+        setDropIndex(null);
+    }, []);
+
+    if (!currentPage) return null;
+
+    const selectOffer = (offer: IPurchasableOffer) => {
+        selectCatalogOffer(offer);
+    };
+
+    const renderOfferTile = (offer: IPurchasableOffer, index: number, airPosition: { x: number; y: number; width: number; height: number } | null = null) => {
+        const isDragging = dragIndex === index;
+        const isDropTarget = dropIndex === index && dragIndex !== index;
+
+        return (
+            <div
+                key={offer.offerId}
+                className={`${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}`}
+                data-air-offer-index={airPosition ? index : undefined}
+                data-offer-index={index}
+                draggable={adminMode}
+                style={
+                    airPosition
+                        ? { position: 'absolute', left: airPosition.x, top: airPosition.y, width: airPosition.width, height: airPosition.height }
+                        : undefined
+                }
+                onDragEnd={adminMode ? handleDragEnd : undefined}
+                onDragOver={adminMode ? (e) => handleDragOver(e, index) : undefined}
+                onDragStart={adminMode ? () => handleDragStart(index) : undefined}
+                onDrop={adminMode ? () => handleDrop(index) : undefined}
+            >
+                <CatalogGridOfferView
+                    itemActive={currentOffer && currentOffer.offerId === offer.offerId}
+                    offer={offer}
+                    selectOffer={selectOffer}
+                    tintColor={tintColor}
+                    showTechnicalDetails={adminMode}
+                    showPrices={showPrices}
+                    pageUsesBaseTemplate={pageUsesAirBaseTemplate}
+                    inventoryVisible={inventoryVisible}
+                />
+            </div>
+        );
+    };
+
+    if (usesAirMixedGridTemplate) {
+        return (
+            <NativeTextTree>
+                <ClassicScrollAreaView className="octane-catalog-item-grid-scroll-area h-full min-h-0" viewportRef={elementRef}>
+                    <div
+                        aria-label={localizeWithFallback('octane.catalog.catalog_items', 'Catalog items')}
+                        className={`octane-catalog-air-mixed-grid ${gridClassName}`}
+                        role="listbox"
+                        style={{ ...airGridStyle, width: mixedLayout.width, minWidth: '100%', height: mixedLayout.height }}
+                        onDragEnd={adminMode ? handleDragEnd : undefined}
+                    >
+                        {renderedMixedEntries.map(({ offer, index, ...position }) => renderOfferTile(offer, index, position))}
+                        {children}
+                    </div>
+                </ClassicScrollAreaView>
+            </NativeTextTree>
+        );
+    }
+
+    if (useVirtualGrid) {
+        return (
+            <NativeTextTree>
+                <div
+                    aria-label={localizeWithFallback('octane.catalog.catalog_items', 'Catalog items')}
+                    className={`octane-catalog-grid-virtual h-full min-h-0 ${gridClassName}`.trim()}
+                    role="listbox"
+                    onDragEnd={adminMode ? handleDragEnd : undefined}
+                    style={
+                        {
+                            '--octane-grid-column-min-height': `${effectiveColumnMinHeight}px`,
+                            '--octane-grid-column-min-width': `${effectiveColumnMinWidth}px`,
+                            ...airGridStyle
+                        } as CSSProperties
+                    }
+                >
+                    <InfiniteGrid
+                        classicScrollbar
+                        airColumnAdmission={isAirStandardDensity}
+                        columnGap={3}
+                        columnCount={columnCount}
+                        estimateSize={effectiveColumnMinHeight}
+                        itemMinWidth={effectiveColumnMinWidth}
+                        items={offers}
+                        overscan={4}
+                        scrollResetKey={pageScrollKey}
+                        reveal={revealIndex >= 0 ? { index: revealIndex, nonce: revealNonce } : null}
+                        rowGap={isAirStandardDensity ? 0 : 3}
+                        onColumnCountChange={isAirStandardDensity ? setAirColumnCount : undefined}
+                        itemRender={(offer, index) => (offer ? renderOfferTile(offer, index) : <></>)}
+                    />
+                    {children}
+                </div>
+            </NativeTextTree>
+        );
+    }
+
+    return (
+        <NativeTextTree>
+            <ClassicScrollAreaView className="octane-catalog-item-grid-scroll-area h-full min-h-0" viewportRef={elementRef}>
+                <AutoGrid
+                    aria-label={localizeWithFallback('octane.catalog.catalog_items', 'Catalog items')}
+                    className={gridClassName}
+                    columnCount={columnCount}
+                    columnMinHeight={effectiveColumnMinHeight}
+                    columnMinWidth={effectiveColumnMinWidth}
+                    fullHeight={false}
+                    overflow="visible"
+                    role="listbox"
+                    style={airGridStyle}
+                    {...rest}
+                >
+                    {offers.length > 0 && offers.map((offer, index) => renderOfferTile(offer, index))}
+                    {children}
+                </AutoGrid>
+            </ClassicScrollAreaView>
+        </NativeTextTree>
+    );
+};

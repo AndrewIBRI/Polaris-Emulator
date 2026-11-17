@@ -1,0 +1,851 @@
+import {
+    CreateLinkEvent,
+    GetSessionDataManager,
+    RoomRightsEvent,
+    WiredMenuPermissionsSaveComposer,
+    WiredRoomSettingsDataEvent,
+    WiredRoomSettingsRequestComposer,
+    WiredRoomStateActionComposer,
+    WiredUserVariableManageComposer,
+    WiredUserVariablesDataEvent,
+    WiredUserVariablesRequestComposer,
+    UserSettingsEvent,
+    WiredMenuSettingsComposer,
+    WiredUserVariableUpdateComposer
+} from '@octane/renderer';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { registerSharedHook } from '@/state/useSharedHook';
+import {
+    createPacketCooldownGate,
+    decodeWiredMenuPreferences,
+    LocalizeText,
+    localizeWithFallback,
+    NotificationAlertType,
+    NotificationBubbleType,
+    normalizeWiredStyle,
+    SendMessageComposer,
+    WIRED_STYLE_DEFAULT,
+    WiredStyleName,
+    wiredPlayTestNotificationKey
+} from '../../api';
+import { useMessageEvent } from '../events';
+import { useWiredPlayTest } from './useWiredPlayTest';
+import { useNotification } from '../notification';
+import { useRoom } from '../rooms';
+
+export interface IWiredAccountPreferences {
+    /**
+     * Official playtest mode: kept on the server with the other wired menu preferences
+     * (WiredMenuSettingsComposer playTestMode).
+     */
+    playTestMode: boolean;
+    showInspectButton: boolean;
+    showSystemNotifications: boolean;
+    showToolbarButton: boolean;
+    /** The look of the wired box windows: "" (default, illumina) or one of WIRED_STYLE_OPTIONS. */
+    wiredStyle: WiredStyleName;
+}
+
+export interface IWiredRoomSettings {
+    canInspect: boolean;
+    canManageSettings: boolean;
+    canModify: boolean;
+    inspectMask: number;
+    isLoaded: boolean;
+    modifyMask: number;
+    roomId: number;
+    /** The room's wired timezone as the server keeps it; empty when the hotel's own applies. */
+    timezone: string;
+}
+
+export interface IWiredUserVariableDefinition {
+    availability: number;
+    hasValue: boolean;
+    isReadOnly?: boolean;
+    isTextConnected: boolean;
+    itemId: number;
+    name: string;
+    /** The value-to-text table of a text connected definition, when the server sent one. */
+    textConnector?: Array<{ key: number; value: string }>;
+    /** AIR WiredVariable.requiresExecutionContext: a pointer, which only exists while a stack runs. */
+    requiresExecutionContext?: boolean;
+}
+
+export interface IWiredUserVariableAssignment {
+    createdAt: number;
+    hasValue: boolean;
+    updatedAt: number;
+    value: number | null;
+    variableItemId: number;
+}
+
+export interface IWiredFurniVariableDefinition {
+    availability: number;
+    hasValue: boolean;
+    isReadOnly?: boolean;
+    isTextConnected: boolean;
+    itemId: number;
+    name: string;
+    /** The value-to-text table of a text connected definition, when the server sent one. */
+    textConnector?: Array<{ key: number; value: string }>;
+    /** AIR WiredVariable.requiresExecutionContext: a pointer, which only exists while a stack runs. */
+    requiresExecutionContext?: boolean;
+}
+
+export interface IWiredFurniVariableAssignment {
+    createdAt: number;
+    hasValue: boolean;
+    updatedAt: number;
+    value: number | null;
+    variableItemId: number;
+}
+
+export interface IWiredRoomVariableDefinition {
+    availability: number;
+    hasValue: boolean;
+    isReadOnly?: boolean;
+    isTextConnected: boolean;
+    itemId: number;
+    name: string;
+    /** The value-to-text table of a text connected definition, when the server sent one. */
+    textConnector?: Array<{ key: number; value: string }>;
+    /** AIR WiredVariable.requiresExecutionContext: a pointer, which only exists while a stack runs. */
+    requiresExecutionContext?: boolean;
+}
+
+export interface IWiredRoomVariableAssignment {
+    createdAt: number;
+    hasValue: boolean;
+    updatedAt: number;
+    value: number | null;
+    variableItemId: number;
+}
+
+export interface IWiredContextVariableDefinition {
+    availability: number;
+    hasValue: boolean;
+    isReadOnly?: boolean;
+    isTextConnected: boolean;
+    itemId: number;
+    name: string;
+    /** The value-to-text table of a text connected definition, when the server sent one. */
+    textConnector?: Array<{ key: number; value: string }>;
+    /** AIR WiredVariable.requiresExecutionContext: a pointer, which only exists while a stack runs. */
+    requiresExecutionContext?: boolean;
+}
+
+const WIRED_VARIABLE_TARGET_USER = 0;
+const WIRED_VARIABLE_TARGET_FURNI = 1;
+const WIRED_VARIABLE_TARGET_ROOM = 3;
+const WIRED_VARIABLE_MANAGE_ACTION_ASSIGN = 0;
+const WIRED_VARIABLE_MANAGE_ACTION_REMOVE = 1;
+const WIRED_VARIABLE_MANAGE_ACTION_CLEAR_ALL = 2;
+
+const WIRED_TOOLS_STORAGE_PREFIX = 'nitro.wired.tools.preferences';
+const getCurrentUnixTime = () => Math.floor(Date.now() / 1000);
+const DEFAULT_ACCOUNT_PREFERENCES: IWiredAccountPreferences = {
+    playTestMode: false,
+    showToolbarButton: false,
+    showInspectButton: false,
+    showSystemNotifications: false,
+    wiredStyle: WIRED_STYLE_DEFAULT
+};
+
+const DEFAULT_ROOM_SETTINGS: IWiredRoomSettings = {
+    roomId: 0,
+    inspectMask: 0,
+    modifyMask: 0,
+    canInspect: false,
+    canModify: false,
+    canManageSettings: false,
+    isLoaded: false,
+    timezone: ''
+};
+
+/**
+ * Internal singleton state-+-actions hook for the Wired tools subsystem.
+ * Public consumers should NOT call this directly — go through
+ * useWiredToolsState (read-only slice) or useWiredToolsActions
+ * (imperative slice). useWiredTools is the legacy shim that composes
+ * both into the original shape.
+ *
+ * Wrapped by the Zustand bridge at the public-hook layer so every consumer in
+ * the tree sees the same instance (matches the previous
+ * shared-store wiring).
+ */
+export const useWiredToolsStore = () => {
+    const { roomSession = null } = useRoom();
+    const { simpleAlert = null, showSingleBubble = null } = useNotification();
+    const [accountPreferences, setAccountPreferences] = useState<IWiredAccountPreferences>(DEFAULT_ACCOUNT_PREFERENCES);
+    const accountPreferencesRef = useRef<IWiredAccountPreferences>(DEFAULT_ACCOUNT_PREFERENCES);
+    // Once the server sent stored preferences, the local copy no longer overrides them.
+    const serverPreferencesAppliedRef = useRef(false);
+
+    useEffect(() => {
+        accountPreferencesRef.current = accountPreferences;
+    }, [accountPreferences]);
+    const [roomSettings, setRoomSettings] = useState<IWiredRoomSettings>(DEFAULT_ROOM_SETTINGS);
+    const [userVariableDefinitions, setUserVariableDefinitions] = useState<IWiredUserVariableDefinition[]>([]);
+    const [userVariableAssignments, setUserVariableAssignments] = useState<Record<number, IWiredUserVariableAssignment[]>>({});
+    const [furniVariableDefinitions, setFurniVariableDefinitions] = useState<IWiredFurniVariableDefinition[]>([]);
+    const [furniVariableAssignments, setFurniVariableAssignments] = useState<Record<number, IWiredFurniVariableAssignment[]>>({});
+    const [roomVariableDefinitions, setRoomVariableDefinitions] = useState<IWiredRoomVariableDefinition[]>([]);
+    const [roomVariableAssignments, setRoomVariableAssignments] = useState<IWiredRoomVariableAssignment[]>([]);
+    const [contextVariableDefinitions, setContextVariableDefinitions] = useState<IWiredContextVariableDefinition[]>([]);
+    const [areUserVariablesLoaded, setAreUserVariablesLoaded] = useState(false);
+    const userVariablesRequestGateRef = useRef<ReturnType<typeof createPacketCooldownGate> | null>(null);
+
+    if (!userVariablesRequestGateRef.current) {
+        userVariablesRequestGateRef.current = createPacketCooldownGate();
+    }
+
+    const requestUserVariables = useCallback(() => {
+        if (!roomSettings.canInspect) return;
+
+        userVariablesRequestGateRef.current?.request(() => {
+            SendMessageComposer(new WiredUserVariablesRequestComposer());
+        });
+    }, [roomSettings.canInspect]);
+
+    const storageKey = useMemo(() => {
+        const userId = GetSessionDataManager().userId;
+
+        return `${WIRED_TOOLS_STORAGE_PREFIX}.${userId || 'guest'}`;
+    }, []);
+
+    useEffect(() => {
+        if (serverPreferencesAppliedRef.current) return;
+
+        try {
+            const rawValue = window.localStorage.getItem(storageKey);
+
+            if (!rawValue) {
+                setAccountPreferences(DEFAULT_ACCOUNT_PREFERENCES);
+                return;
+            }
+
+            const parsedValue = JSON.parse(rawValue) as Partial<IWiredAccountPreferences>;
+
+            setAccountPreferences({
+                ...DEFAULT_ACCOUNT_PREFERENCES,
+                ...(parsedValue || {}),
+                wiredStyle: normalizeWiredStyle(parsedValue?.wiredStyle)
+            });
+        } catch {
+            setAccountPreferences(DEFAULT_ACCOUNT_PREFERENCES);
+        }
+    }, [storageKey]);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(storageKey, JSON.stringify(accountPreferences));
+        } catch {}
+    }, [accountPreferences, storageKey]);
+
+    useEffect(() => {
+        if (!roomSession?.roomId) {
+            setRoomSettings(DEFAULT_ROOM_SETTINGS);
+            setUserVariableDefinitions([]);
+            setUserVariableAssignments({});
+            setFurniVariableDefinitions([]);
+            setFurniVariableAssignments({});
+            setRoomVariableDefinitions([]);
+            setRoomVariableAssignments([]);
+            setContextVariableDefinitions([]);
+            setAreUserVariablesLoaded(false);
+            return;
+        }
+
+        setRoomSettings((prevValue) => ({
+            ...DEFAULT_ROOM_SETTINGS,
+            roomId: roomSession.roomId,
+            canInspect: prevValue.roomId === roomSession.roomId ? prevValue.canInspect : false,
+            canModify: prevValue.roomId === roomSession.roomId ? prevValue.canModify : false,
+            canManageSettings: prevValue.roomId === roomSession.roomId ? prevValue.canManageSettings : false
+        }));
+
+        SendMessageComposer(new WiredRoomSettingsRequestComposer());
+    }, [roomSession?.roomId]);
+
+    useEffect(() => {
+        if (!roomSession?.roomId || !roomSettings.canInspect) {
+            setUserVariableDefinitions([]);
+            setUserVariableAssignments({});
+            setFurniVariableDefinitions([]);
+            setFurniVariableAssignments({});
+            setRoomVariableDefinitions([]);
+            setRoomVariableAssignments([]);
+            setContextVariableDefinitions([]);
+            setAreUserVariablesLoaded(false);
+            return;
+        }
+
+        requestUserVariables();
+    }, [roomSession?.roomId, roomSettings.canInspect, requestUserVariables]);
+
+    useMessageEvent<WiredRoomSettingsDataEvent>(WiredRoomSettingsDataEvent, (event) => {
+        const parser = event.getParser();
+
+        if (roomSession?.roomId && parser.roomId && parser.roomId !== roomSession.roomId) return;
+
+        setRoomSettings({
+            roomId: parser.roomId,
+            inspectMask: parser.inspectMask,
+            modifyMask: parser.modifyMask,
+            canInspect: parser.canInspect,
+            canModify: parser.canModify,
+            canManageSettings: parser.canManageSettings,
+            isLoaded: true,
+            timezone: parser.timezone ?? ''
+        });
+    });
+
+    useMessageEvent<WiredUserVariablesDataEvent>(WiredUserVariablesDataEvent, (event) => {
+        const parser = event.getParser();
+
+        if (roomSession?.roomId && parser.roomId && parser.roomId !== roomSession.roomId) return;
+
+        const nextAssignments: Record<number, IWiredUserVariableAssignment[]> = {};
+        const nextFurniAssignments: Record<number, IWiredFurniVariableAssignment[]> = {};
+
+        for (const userEntry of parser.users || []) {
+            nextAssignments[userEntry.userId] = [...(userEntry.assignments || [])];
+        }
+
+        for (const furniEntry of parser.furnis || []) {
+            nextFurniAssignments[furniEntry.furniId] = [...(furniEntry.assignments || [])];
+        }
+
+        setUserVariableDefinitions([...(parser.definitions || [])]);
+        setUserVariableAssignments(nextAssignments);
+        setFurniVariableDefinitions([...(parser.furniDefinitions || [])]);
+        setFurniVariableAssignments(nextFurniAssignments);
+        setRoomVariableDefinitions([...(parser.roomDefinitions || [])]);
+        setRoomVariableAssignments([...(parser.roomAssignments || [])]);
+        setContextVariableDefinitions([...(parser.contextDefinitions || [])]);
+        setAreUserVariablesLoaded(true);
+    });
+
+    // The official client keeps the wired menu preferences on the server; the whisper switch rides
+    // along in the same packet, so the last value the server sent is kept here.
+    const wiredWhisperDisabledRef = useRef(false);
+
+    // Official onControllerMessageEvent: while playtest mode is on, every rights update in a room
+    // reminds the user, linked to the wired menu settings.
+    useMessageEvent<RoomRightsEvent>(RoomRightsEvent, () => {
+        if (!accountPreferencesRef.current.playTestMode) return;
+
+        showSingleBubble?.(
+            localizeWithFallback(
+                'wiredmenu.settings.preferences.notification.playtest',
+                'Info: you are currently in playtest mode. Disable in the Wired Menu (click)'
+            ),
+            NotificationBubbleType.INFO,
+            null,
+            'wiredmenu/open/settings'
+        );
+    });
+
+    useMessageEvent<UserSettingsEvent>(UserSettingsEvent, (event) => {
+        const parser = event.getParser();
+
+        wiredWhisperDisabledRef.current = !!parser.wiredWhisperDisabled;
+
+        const stored = decodeWiredMenuPreferences(parser.wiredMenuPreferences ?? '');
+
+        if (!stored) return;
+
+        serverPreferencesAppliedRef.current = true;
+        setAccountPreferences((prevValue) => ({
+            ...prevValue,
+            playTestMode: stored.playTestMode,
+            showToolbarButton: stored.showToolbarButton,
+            showInspectButton: stored.showInspectButton,
+            showSystemNotifications: stored.showSystemNotifications,
+            wiredStyle: stored.wiredStyle
+        }));
+    });
+
+    const sendWiredMenuSettings = useCallback((preferences: IWiredAccountPreferences) => {
+        SendMessageComposer(
+            new WiredMenuSettingsComposer(
+                preferences.showToolbarButton,
+                preferences.showInspectButton,
+                preferences.playTestMode,
+                wiredWhisperDisabledRef.current,
+                preferences.showSystemNotifications,
+                preferences.wiredStyle
+            )
+        );
+    }, []);
+
+    const updateAccountPreferences = useCallback(
+        (partialPreferences: Partial<IWiredAccountPreferences>) => {
+            const next = { ...accountPreferencesRef.current, ...partialPreferences };
+
+            accountPreferencesRef.current = next;
+            setAccountPreferences(next);
+            sendWiredMenuSettings(next);
+        },
+        [sendWiredMenuSettings]
+    );
+
+    // Official setPlayTestMode(on, notify): the switch is saved with the other preferences and a
+    // notification, linked to the wired menu settings, says which way it went.
+    const setPlayTestMode = useCallback(
+        (playTestMode: boolean) => {
+            if (playTestMode === accountPreferencesRef.current.playTestMode) return;
+
+            updateAccountPreferences({ playTestMode });
+            showSingleBubble?.(
+                localizeWithFallback(wiredPlayTestNotificationKey(playTestMode), playTestMode ? localizeWithFallback('octane.wired_tools.playtest_mode_enabled', 'Playtest mode enabled') : localizeWithFallback('octane.wired_tools.playtest_mode_disabled', 'Playtest mode disabled')),
+                NotificationBubbleType.INFO,
+                null,
+                'wiredmenu/open/settings'
+            );
+        },
+        [updateAccountPreferences, showSingleBubble]
+    );
+
+    const togglePlayTestMode = useCallback(() => setPlayTestMode(!accountPreferencesRef.current.playTestMode), [setPlayTestMode]);
+
+    useWiredPlayTest(accountPreferences.playTestMode, togglePlayTestMode);
+
+    /**
+     * The whisper switch of the user settings travels in the same packet as the wired menu
+     * preferences, so it is saved here with the stored ones and is not lost by the next save.
+     */
+    const updateWiredWhisperDisabled = useCallback(
+        (disabled: boolean) => {
+            wiredWhisperDisabledRef.current = disabled;
+            sendWiredMenuSettings(accountPreferencesRef.current);
+        },
+        [sendWiredMenuSettings]
+    );
+
+    // The official permissions packet carries the timezone too, so every save sends all three and
+    // the server answers with the settings it kept.
+    const saveRoomSettings = useCallback(
+        (inspectMask: number, modifyMask: number, timezone: string = roomSettings.timezone) => {
+            if (!roomSettings.canManageSettings) return;
+
+            setRoomSettings((prevValue) => ({
+                ...prevValue,
+                inspectMask,
+                modifyMask,
+                timezone
+            }));
+
+            SendMessageComposer(new WiredMenuPermissionsSaveComposer(modifyMask, inspectMask, timezone));
+        },
+        [roomSettings.canManageSettings, roomSettings.timezone]
+    );
+
+    const saveRoomTimezone = useCallback(
+        (timezone: string) => saveRoomSettings(roomSettings.inspectMask, roomSettings.modifyMask, timezone),
+        [saveRoomSettings, roomSettings.inspectMask, roomSettings.modifyMask]
+    );
+
+    /** Drops the room's cached wired stacks so its boxes are wired up again from the furniture as it stands. */
+    const reloadRoomWired = useCallback(() => {
+        if (!roomSettings.canModify) return;
+
+        SendMessageComposer(new WiredRoomStateActionComposer(false));
+    }, [roomSettings.canModify]);
+
+    /** Re-reads every box from storage, discarding edits that were never saved, then rebuilds the stacks. */
+    const rollbackRoomWired = useCallback(() => {
+        if (!roomSettings.canModify) return;
+
+        SendMessageComposer(new WiredRoomStateActionComposer(true));
+    }, [roomSettings.canModify]);
+
+    const updateUserVariableValue = useCallback(
+        (userId: number, variableItemId: number, value: number) => {
+            if (!roomSettings.canModify) return;
+
+            setUserVariableAssignments((prevValue) => {
+                const existingAssignments = prevValue[userId];
+
+                if (!existingAssignments?.length) return prevValue;
+
+                let didChange = false;
+                const nextAssignments = existingAssignments.map((assignment) => {
+                    if (assignment.variableItemId !== variableItemId) return assignment;
+
+                    didChange = true;
+
+                    return {
+                        ...assignment,
+                        hasValue: true,
+                        value,
+                        updatedAt: getCurrentUnixTime()
+                    };
+                });
+
+                if (!didChange) return prevValue;
+
+                return {
+                    ...prevValue,
+                    [userId]: nextAssignments
+                };
+            });
+
+            SendMessageComposer(new WiredUserVariableUpdateComposer(WIRED_VARIABLE_TARGET_USER, userId, variableItemId, value));
+        },
+        [roomSettings.canModify]
+    );
+
+    const updateFurniVariableValue = useCallback(
+        (furniId: number, variableItemId: number, value: number) => {
+            if (!roomSettings.canModify) return;
+
+            setFurniVariableAssignments((prevValue) => {
+                const existingAssignments = prevValue[furniId];
+
+                if (!existingAssignments?.length) return prevValue;
+
+                let didChange = false;
+                const nextAssignments = existingAssignments.map((assignment) => {
+                    if (assignment.variableItemId !== variableItemId) return assignment;
+
+                    didChange = true;
+
+                    return {
+                        ...assignment,
+                        hasValue: true,
+                        value,
+                        updatedAt: getCurrentUnixTime()
+                    };
+                });
+
+                if (!didChange) return prevValue;
+
+                return {
+                    ...prevValue,
+                    [furniId]: nextAssignments
+                };
+            });
+
+            SendMessageComposer(new WiredUserVariableUpdateComposer(WIRED_VARIABLE_TARGET_FURNI, furniId, variableItemId, value));
+        },
+        [roomSettings.canModify]
+    );
+
+    const updateRoomVariableValue = useCallback(
+        (variableItemId: number, value: number) => {
+            if (!roomSettings.canModify) return;
+
+            setRoomVariableAssignments((prevValue) => {
+                const now = getCurrentUnixTime();
+                let didChange = false;
+                const nextAssignments = prevValue.map((assignment) => {
+                    if (assignment.variableItemId !== variableItemId) return assignment;
+
+                    didChange = true;
+
+                    return {
+                        ...assignment,
+                        hasValue: true,
+                        value,
+                        updatedAt: now
+                    };
+                });
+
+                if (didChange) return nextAssignments;
+
+                return [
+                    ...prevValue,
+                    {
+                        variableItemId,
+                        hasValue: true,
+                        value,
+                        createdAt: 0,
+                        updatedAt: now
+                    }
+                ];
+            });
+
+            SendMessageComposer(new WiredUserVariableUpdateComposer(WIRED_VARIABLE_TARGET_ROOM, roomSettings.roomId, variableItemId, value));
+        },
+        [roomSettings.canModify, roomSettings.roomId]
+    );
+
+    const assignUserVariable = useCallback(
+        (userId: number, variableItemId: number, value: number) => {
+            if (!roomSettings.canModify) return;
+
+            const definition = userVariableDefinitions.find((entry) => entry.itemId === variableItemId);
+
+            if (!definition) return;
+
+            const now = getCurrentUnixTime();
+            const normalizedValue = definition.hasValue ? value : null;
+
+            setUserVariableAssignments((prevValue) => {
+                const existingAssignments = [...(prevValue[userId] || [])];
+                const existingIndex = existingAssignments.findIndex((assignment) => assignment.variableItemId === variableItemId);
+
+                if (existingIndex >= 0) {
+                    const existingAssignment = existingAssignments[existingIndex];
+
+                    existingAssignments[existingIndex] = {
+                        ...existingAssignment,
+                        hasValue: definition.hasValue,
+                        value: normalizedValue,
+                        updatedAt: now
+                    };
+                } else {
+                    existingAssignments.push({
+                        variableItemId,
+                        hasValue: definition.hasValue,
+                        value: normalizedValue,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                }
+
+                return {
+                    ...prevValue,
+                    [userId]: existingAssignments
+                };
+            });
+
+            SendMessageComposer(
+                new WiredUserVariableManageComposer(
+                    WIRED_VARIABLE_MANAGE_ACTION_ASSIGN,
+                    WIRED_VARIABLE_TARGET_USER,
+                    userId,
+                    variableItemId,
+                    Number(normalizedValue ?? 0)
+                )
+            );
+        },
+        [roomSettings.canModify, userVariableDefinitions]
+    );
+
+    const removeUserVariable = useCallback(
+        (userId: number, variableItemId: number) => {
+            if (!roomSettings.canModify) return;
+
+            setUserVariableAssignments((prevValue) => {
+                const existingAssignments = prevValue[userId];
+
+                if (!existingAssignments?.length) return prevValue;
+
+                const nextAssignments = existingAssignments.filter((assignment) => assignment.variableItemId !== variableItemId);
+
+                if (nextAssignments.length === existingAssignments.length) return prevValue;
+
+                const nextValue = { ...prevValue };
+
+                if (nextAssignments.length) nextValue[userId] = nextAssignments;
+                else delete nextValue[userId];
+
+                return nextValue;
+            });
+
+            SendMessageComposer(
+                new WiredUserVariableManageComposer(WIRED_VARIABLE_MANAGE_ACTION_REMOVE, WIRED_VARIABLE_TARGET_USER, userId, variableItemId, 0)
+            );
+        },
+        [roomSettings.canModify]
+    );
+
+    const assignFurniVariable = useCallback(
+        (furniId: number, variableItemId: number, value: number) => {
+            if (!roomSettings.canModify) return;
+
+            const definition = furniVariableDefinitions.find((entry) => entry.itemId === variableItemId);
+
+            if (!definition) return;
+
+            const now = getCurrentUnixTime();
+            const normalizedValue = definition.hasValue ? value : null;
+
+            setFurniVariableAssignments((prevValue) => {
+                const existingAssignments = [...(prevValue[furniId] || [])];
+                const existingIndex = existingAssignments.findIndex((assignment) => assignment.variableItemId === variableItemId);
+
+                if (existingIndex >= 0) {
+                    const existingAssignment = existingAssignments[existingIndex];
+
+                    existingAssignments[existingIndex] = {
+                        ...existingAssignment,
+                        hasValue: definition.hasValue,
+                        value: normalizedValue,
+                        updatedAt: now
+                    };
+                } else {
+                    existingAssignments.push({
+                        variableItemId,
+                        hasValue: definition.hasValue,
+                        value: normalizedValue,
+                        createdAt: now,
+                        updatedAt: now
+                    });
+                }
+
+                return {
+                    ...prevValue,
+                    [furniId]: existingAssignments
+                };
+            });
+
+            SendMessageComposer(
+                new WiredUserVariableManageComposer(
+                    WIRED_VARIABLE_MANAGE_ACTION_ASSIGN,
+                    WIRED_VARIABLE_TARGET_FURNI,
+                    furniId,
+                    variableItemId,
+                    Number(normalizedValue ?? 0)
+                )
+            );
+        },
+        [furniVariableDefinitions, roomSettings.canModify]
+    );
+
+    const removeFurniVariable = useCallback(
+        (furniId: number, variableItemId: number) => {
+            if (!roomSettings.canModify) return;
+
+            setFurniVariableAssignments((prevValue) => {
+                const existingAssignments = prevValue[furniId];
+
+                if (!existingAssignments?.length) return prevValue;
+
+                const nextAssignments = existingAssignments.filter((assignment) => assignment.variableItemId !== variableItemId);
+
+                if (nextAssignments.length === existingAssignments.length) return prevValue;
+
+                const nextValue = { ...prevValue };
+
+                if (nextAssignments.length) nextValue[furniId] = nextAssignments;
+                else delete nextValue[furniId];
+
+                return nextValue;
+            });
+
+            SendMessageComposer(
+                new WiredUserVariableManageComposer(WIRED_VARIABLE_MANAGE_ACTION_REMOVE, WIRED_VARIABLE_TARGET_FURNI, furniId, variableItemId, 0)
+            );
+        },
+        [roomSettings.canModify]
+    );
+
+    /**
+     * Takes a variable away from every holder at once, the official "clear this variable". The
+     * server decides who may (the owner of the definition box); the room is told through the next
+     * snapshot, but the local copy drops the holders straight away so the tab does not lag behind.
+     */
+    const clearVariableForAllHolders = useCallback(
+        (scope: 'user' | 'furni', variableItemId: number) => {
+            if (!roomSettings.canModify || !variableItemId) return;
+
+            const strip = (prevValue: Record<number, { variableItemId: number }[]>) => {
+                const nextValue: typeof prevValue = {};
+
+                for (const [holderId, assignments] of Object.entries(prevValue)) {
+                    const remaining = assignments.filter((assignment) => assignment.variableItemId !== variableItemId);
+
+                    if (remaining.length) nextValue[Number(holderId)] = remaining;
+                }
+
+                return nextValue;
+            };
+
+            if (scope === 'furni') setFurniVariableAssignments((prevValue) => strip(prevValue) as typeof prevValue);
+            else setUserVariableAssignments((prevValue) => strip(prevValue) as typeof prevValue);
+
+            SendMessageComposer(
+                new WiredUserVariableManageComposer(
+                    WIRED_VARIABLE_MANAGE_ACTION_CLEAR_ALL,
+                    scope === 'furni' ? WIRED_VARIABLE_TARGET_FURNI : WIRED_VARIABLE_TARGET_USER,
+                    0,
+                    variableItemId,
+                    0
+                )
+            );
+        },
+        [roomSettings.canModify]
+    );
+
+    const showInvalidRoomAlert = useCallback(() => {
+        if (!simpleAlert) return;
+
+        simpleAlert(LocalizeText('wiredmenu.invalid_room.desc'), NotificationAlertType.ALERT, null, null, LocalizeText('wiredmenu.invalid_room.title'));
+    }, [simpleAlert]);
+
+    const openMonitor = useCallback(() => {
+        if (!roomSettings.canInspect) {
+            showInvalidRoomAlert();
+            return;
+        }
+
+        CreateLinkEvent('wired-tools/show');
+    }, [roomSettings.canInspect, showInvalidRoomAlert]);
+
+    const openInspectionForFurni = useCallback(
+        (objectId: number, category: number) => {
+            if (!roomSettings.canInspect) {
+                showInvalidRoomAlert();
+                return;
+            }
+
+            CreateLinkEvent(`wired-tools/inspection/furni/${objectId}/${category}`);
+        },
+        [roomSettings.canInspect, showInvalidRoomAlert]
+    );
+
+    const openInspectionForUser = useCallback(
+        (roomIndex: number) => {
+            if (!roomSettings.canInspect) {
+                showInvalidRoomAlert();
+                return;
+            }
+
+            CreateLinkEvent(`wired-tools/inspection/user/${roomIndex}`);
+        },
+        [roomSettings.canInspect, showInvalidRoomAlert]
+    );
+
+    const showToolbarButton = !!roomSession?.roomId && roomSettings.canInspect && accountPreferences.showToolbarButton;
+    const showInspectButton = !!roomSession?.roomId && roomSettings.canInspect && accountPreferences.showInspectButton;
+
+    return {
+        accountPreferences,
+        roomSettings,
+        showInspectButton,
+        showToolbarButton,
+        userVariableDefinitions,
+        userVariableAssignments,
+        furniVariableDefinitions,
+        furniVariableAssignments,
+        roomVariableDefinitions,
+        roomVariableAssignments,
+        contextVariableDefinitions,
+        areUserVariablesLoaded,
+        updateAccountPreferences,
+        setPlayTestMode,
+        togglePlayTestMode,
+        updateWiredWhisperDisabled,
+        saveRoomSettings,
+        saveRoomTimezone,
+        reloadRoomWired,
+        rollbackRoomWired,
+        requestUserVariables,
+        assignUserVariable,
+        removeUserVariable,
+        updateUserVariableValue,
+        assignFurniVariable,
+        removeFurniVariable,
+        clearVariableForAllHolders,
+        updateFurniVariableValue,
+        updateRoomVariableValue,
+        openMonitor,
+        openInspectionForFurni,
+        openInspectionForUser
+    };
+};
+
+registerSharedHook(useWiredToolsStore);

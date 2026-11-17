@@ -1,0 +1,21 @@
+import { IMessageComposer } from '@octane/api';
+
+export class RejectQuestMessageComposer implements IMessageComposer<ConstructorParameters<typeof RejectQuestMessageComposer>>
+{
+    private _data: ConstructorParameters<typeof RejectQuestMessageComposer>;
+
+    constructor(questId: number)
+    {
+        this._data = [questId];
+    }
+
+    public getMessageArray()
+    {
+        return this._data;
+    }
+
+    public dispose(): void
+    {
+        return;
+    }
+}

@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - Dev
+      - 'feat/**'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      renderer_repo:
+        description: 'Renderer repo (owner/name). Empty = vars.RENDERER_REPO or upstream default.'
+        required: false
+        default: ''
+      renderer_ref:
+        description: 'Renderer git ref. Empty = vars.RENDERER_REF or auto (main on client main, else Dev).'
+        required: false
+        default: ''
+
+# Opt into the Node.js 24 runtime for the JavaScript actions
+# (actions/checkout, actions/setup-node, …). Node 20 will be removed
+# from GitHub-hosted runners in September 2026; this env var asks the
+# runner to use Node 24 today so the workflow logs stop warning about
+# it on every run.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Upstream renderer used as the fallback when nothing else is
+  # configured. Override per-fork via the RENDERER_REPO / RENDERER_REF
+  # repository variables (Settings → Secrets and variables → Actions →
+  # Variables) or, for one-off runs, via the workflow_dispatch inputs.
+  UPSTREAM_RENDERER_REPO: 'duckietm/Octane-Renderer'
+
+jobs:
+  check:
+    name: Type check + tests
+    runs-on: ubuntu-latest
+    steps:
+      # The build/dev/typecheck setup expects the Octane renderer SDK to
+      # live as a sibling of this repo (see CLAUDE.md → Setup walkthrough).
+      # Mirror that here by checking the client into <workspace>/octane
+      # and the renderer into <workspace>/octane-renderer.
+      - name: Checkout Octane
+        uses: actions/checkout@v7
+        with:
+          path: octane
+
+      # Resolve the renderer pairing with a clear precedence, from most
+      # specific to most generic — no fork names or feature branches are
+      # hardcoded in this workflow:
+      #
+      #   1. workflow_dispatch inputs (renderer_repo / renderer_ref)
+      #        → explicit manual override, wins outright.
+      #   2. repository variables (vars.RENDERER_REPO / vars.RENDERER_REF)
+      #        → per-fork config set under Settings → Variables, applies
+      #          to push and pull_request runs without editing this file.
+      #   3. dynamic, owner-aware default (no hardcoded fork name)
+      #        → a fork renderer only when it carries a branch specific to
+      #          the PR, otherwise <github.repository_owner>/Octane-Renderer
+      #          or UPSTREAM_RENDERER_REPO. Ref is `main` on a main build,
+      #          otherwise `Dev`. A stale generic fork branch must never
+      #          shadow the current upstream integration branch.
+      #
+      # The two repos must stay wire-aligned (composer/parser
+      # signatures); pairing the client with a stale renderer is what
+      # produced the "Expected 14-15 arguments, but got 16" failure on
+      # the catalog edit composer. When a feature touches both repos,
+      # point RENDERER_REPO/RENDERER_REF (or the dispatch inputs) at the
+      # companion renderer branch.
+      - name: Resolve renderer ref
+        id: renderer
+        env:
+          INPUT_RENDERER_REPO: ${{ github.event.inputs.renderer_repo }}
+          INPUT_RENDERER_REF: ${{ github.event.inputs.renderer_ref }}
+          VARIABLE_RENDERER_REPO: ${{ vars.RENDERER_REPO }}
+          VARIABLE_RENDERER_REF: ${{ vars.RENDERER_REF }}
+          PR_HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login || '' }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+        run: |
+          node --test octane/.github/scripts/resolve-renderer.test.mjs
+          node octane/.github/scripts/resolve-renderer.mjs
+
+      - name: Checkout Octane Renderer (sibling)
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.renderer.outputs.repo }}
+          ref: ${{ steps.renderer.outputs.ref }}
+          path: octane-renderer
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: 'octane/.nvmrc'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install renderer SDK deps
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        working-directory: octane-renderer
+        run: corepack yarn install --immutable
+
+      - name: Install client deps
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        working-directory: octane
+        run: corepack yarn install --immutable
+
+      # The renderer SDK is consumed via a filesystem symlink in
+      # node_modules/@octane/renderer; create it AFTER yarn
+      # install (otherwise yarn would clean it up since the package
+      # isn't declared in package.json). TypeScript 7
+      # then resolves the tsconfig `include` entry pointing at the
+      # renderer's `src/**/*.ts`.
+      #
+      # Use an absolute path so the link target is unambiguous
+      # regardless of the cwd that reads it. A relative target like
+      # `../../../octane-renderer` resolves to
+      # `octane/octane-renderer` (one too few `..`), which doesn't
+      # exist and makes the type check report TS2307 across the entire src/.
+      - name: Symlink renderer into client node_modules
+        run: |
+          mkdir -p octane/node_modules/@octane
+          ln -sfn "${{ github.workspace }}/octane-renderer" octane/node_modules/@octane/renderer
+          ls -la octane/node_modules/@octane/
+          ls octane/node_modules/@octane/renderer/packages/api/src/ | head -5
+
+      - name: Type check (TypeScript 7)
+        working-directory: octane
+        run: yarn typecheck
+
+      # Hook-order lint gate — ESLint runs only react-hooks/rules-of-hooks
+      # (Biome does the rest). Catches the
+      # "hook below early-return" pattern that produced two production
+      # crashes this session (CatalogPurchaseWidgetView, CatalogItemGridWidgetView).
+      - name: ESLint (hook-order gate)
+        working-directory: octane
+        run: yarn lint:hooks
+
+      # Dependency gate: a package.json entry nothing imports, or an import
+      # package.json does not list. Unused files and exports are reported by a
+      # plain `yarn knip` locally but do not fail CI. Runs after the renderer
+      # symlink so the tsconfig aliases resolve as they do on a developer machine.
+      - name: Knip (dependencies)
+        working-directory: octane
+        run: yarn knip --dependencies
+
+      - name: Vitest
+        working-directory: octane
+        run: yarn test --run

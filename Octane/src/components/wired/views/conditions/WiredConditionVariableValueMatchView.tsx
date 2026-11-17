@@ -1,0 +1,523 @@
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fromOfficialComparison, fromOfficialVariableTarget, LocalizeText, localizeWithFallback, toOfficialComparison, toOfficialVariableTarget, WiredFurniType, WiredSelectionVisualizer } from '../../../../api';
+import contextVariableIcon from '../../../../assets/images/wired/var/icon_source_context_clean.png';
+import furniVariableIcon from '../../../../assets/images/wired/var/icon_source_furni.png';
+import globalVariableIcon from '../../../../assets/images/wired/var/icon_source_global.png';
+import userVariableIcon from '../../../../assets/images/wired/var/icon_source_user.png';
+import { Text } from '../../../../common';
+import { useWired, useWiredTools } from '../../../../hooks';
+import { WiredFurniSelectionSourceRow } from '../WiredFurniSelectionSourceRow';
+import { CLICKED_USER_SOURCE, FURNI_SOURCES, sortWiredSourceOptions, USER_SOURCES, useAvailableUserSources, WiredSourceOption } from '../WiredSourcesSelector';
+import { isWiredSameHolderEligible, WiredValueOrVariableInput } from '../WiredValueOrVariableInput';
+import { WiredVariablePicker } from '../WiredVariablePicker';
+import {
+    buildWiredVariablePickerEntries,
+    createFallbackVariableEntry,
+    flattenWiredVariablePickerEntries,
+    normalizeVariableTokenFromWire
+} from '../WiredVariablePickerData';
+import { readWiredVariableToken, toWiredVariableId, wiredVariableIdList } from '../WiredVariableIds';
+import { WiredConditionBaseView } from './WiredConditionBaseView';
+import { BaseButton } from '../../../../common/BaseButton';
+import { Radio } from '../../../../common/Radio';
+import { NativeTextTree } from '../../../../common/native-text/NativeTextTree';
+
+type VariableTargetType = 'user' | 'furni' | 'global' | 'context';
+type ReferenceMode = 'constant' | 'variable';
+type SelectionMode = 'destination' | 'reference';
+
+interface IVariableDefinition {
+    availability: number;
+    hasValue: boolean;
+    itemId: number;
+    name: string;
+}
+
+const TARGET_USER = 0;
+const TARGET_FURNI = 1;
+const TARGET_CONTEXT = 2;
+const TARGET_GLOBAL = 3;
+const REFERENCE_CONSTANT = 0;
+const REFERENCE_VARIABLE = 1;
+const SOURCE_TRIGGER = 0;
+const SOURCE_SELECTED = 100;
+const SOURCE_SECONDARY_SELECTED = 101;
+
+const TARGET_BUTTONS: Array<{ key: VariableTargetType; icon: string; disabled?: boolean }> = [
+    { key: 'furni', icon: furniVariableIcon },
+    { key: 'user', icon: userVariableIcon },
+    { key: 'global', icon: globalVariableIcon },
+    { key: 'context', icon: contextVariableIcon }
+];
+
+const REFERENCE_TARGETS: VariableTargetType[] = ['furni', 'user', 'global', 'context'];
+
+const COMPARISON_OPTIONS = [
+    { value: 0, label: '>' },
+    { value: 1, label: '≥' },
+    { value: 2, label: '=' },
+    { value: 3, label: '≤' },
+    { value: 4, label: '<' },
+    { value: 5, label: '≠' }
+];
+
+const SECONDARY_FURNI_SOURCES: WiredSourceOption[] = sortWiredSourceOptions(
+    [
+        { value: SOURCE_TRIGGER, label: 'wiredfurni.params.sources.furni.0' },
+        { value: SOURCE_SECONDARY_SELECTED, label: 'wiredfurni.params.sources.furni.101' },
+        { value: 200, label: 'wiredfurni.params.sources.furni.200' },
+        { value: 201, label: 'wiredfurni.params.sources.furni.201' }
+    ],
+    'furni'
+);
+
+const GLOBAL_SOURCE_OPTIONS: WiredSourceOption[] = [{ value: SOURCE_TRIGGER, label: 'wiredfurni.params.sources.global' }];
+const CONTEXT_SOURCE_OPTIONS: WiredSourceOption[] = [{ value: SOURCE_TRIGGER, label: 'wiredfurni.params.sources.context' }];
+
+const parseIds = (value: string): number[] => {
+    if (!value?.length) return [];
+
+    const ids = new Set<number>();
+
+    for (const part of value.split(/[;,\t]/)) {
+        const parsedValue = parseInt(part.trim(), 10);
+
+        if (!Number.isNaN(parsedValue) && parsedValue > 0) ids.add(parsedValue);
+    }
+
+    return [...ids];
+};
+
+const parseStringData = (value: string) => (value?.length ? value.split('\t', -1) : []);
+
+const normalizeTargetType = (value: number): VariableTargetType => {
+    switch (value) {
+        case TARGET_FURNI:
+            return 'furni';
+        case TARGET_GLOBAL:
+            return 'global';
+        case TARGET_CONTEXT:
+            return 'context';
+        default:
+            return 'user';
+    }
+};
+
+const getTargetValue = (value: VariableTargetType) => {
+    switch (value) {
+        case 'furni':
+            return TARGET_FURNI;
+        case 'global':
+            return TARGET_GLOBAL;
+        case 'context':
+            return TARGET_CONTEXT;
+        default:
+            return TARGET_USER;
+    }
+};
+
+const resolveSourceOptions = (baseOptions: WiredSourceOption[], selectedValue: number, fallbackOptions: WiredSourceOption[]) => {
+    if (!baseOptions.length) return baseOptions;
+    if (baseOptions.some((option) => option.value === selectedValue)) return baseOptions;
+
+    const fallbackOption = fallbackOptions.find((option) => option.value === selectedValue);
+
+    if (!fallbackOption) return baseOptions;
+
+    return [...baseOptions, fallbackOption];
+};
+
+const getTargetDefinitions = (
+    targetType: VariableTargetType,
+    userDefinitions: IVariableDefinition[],
+    furniDefinitions: IVariableDefinition[],
+    roomDefinitions: IVariableDefinition[],
+    contextDefinitions: IVariableDefinition[]
+) => {
+    switch (targetType) {
+        case 'furni':
+            return furniDefinitions;
+        case 'global':
+            return roomDefinitions;
+        case 'context':
+            return contextDefinitions;
+        default:
+            return userDefinitions;
+    }
+};
+
+const isGlobalTarget = (targetType: VariableTargetType) => targetType === 'global';
+const isFurniTarget = (targetType: VariableTargetType) => targetType === 'furni';
+const isContextTarget = (targetType: VariableTargetType) => targetType === 'context';
+
+export const WiredConditionVariableValueMatchView: FC<{}> = () => {
+    // Official layout: [target, comparison, operandIsVariable, operandHigh, operandLow, operandTarget, sameHolder,
+    // our reference user source, our reference furni source], the furni and users in the official slots; the quantifier
+    // is the base view's.
+    const { trigger = null, furniIds = [], setAllowsFurni = null, setFurniIds = null, setIntParams = null, setStringParam = null, setSourceTypes = null, setVariableIds = null, setFurniIds2 = null } = useWired();
+    const [sameHolder, setSameHolder] = useState(false);
+    const { userVariableDefinitions = [], furniVariableDefinitions = [], roomVariableDefinitions = [], contextVariableDefinitions = [] } = useWiredTools();
+    const [targetType, setTargetType] = useState<VariableTargetType>('user');
+    const [variableToken, setVariableToken] = useState('');
+    const [comparison, setComparison] = useState(2);
+    const [referenceMode, setReferenceMode] = useState<ReferenceMode>('constant');
+    const [referenceConstantValueInput, setReferenceConstantValueInput] = useState('0');
+    const [referenceTargetType, setReferenceTargetType] = useState<VariableTargetType>('user');
+    const [referenceVariableToken, setReferenceVariableToken] = useState('');
+    const [userSource, setUserSource] = useState(SOURCE_TRIGGER);
+    const [furniSource, setFurniSource] = useState(SOURCE_TRIGGER);
+    const [referenceUserSource, setReferenceUserSource] = useState(SOURCE_TRIGGER);
+    const [referenceFurniSource, setReferenceFurniSource] = useState(SOURCE_TRIGGER);
+    const [destinationFurniIds, setDestinationFurniIds] = useState<number[]>([]);
+    const [referenceFurniIds, setReferenceFurniIds] = useState<number[]>([]);
+    const [selectionMode, setSelectionMode] = useState<SelectionMode>('destination');
+    const [referenceValid, setReferenceValid] = useState(true);
+    const highlightedIds = useRef<number[]>([]);
+
+    const availableUserSources = useAvailableUserSources(trigger, USER_SOURCES);
+    const orderedUserSources = useMemo(() => sortWiredSourceOptions(availableUserSources, 'users'), [availableUserSources]);
+    const orderedFurniSources = useMemo(() => sortWiredSourceOptions(FURNI_SOURCES, 'furni'), []);
+    const userSourceFallbackOptions = useMemo(() => sortWiredSourceOptions([...USER_SOURCES, CLICKED_USER_SOURCE], 'users'), []);
+    const targetDefinitions = useMemo(
+        () => getTargetDefinitions(targetType, userVariableDefinitions, furniVariableDefinitions, roomVariableDefinitions, contextVariableDefinitions),
+        [contextVariableDefinitions, furniVariableDefinitions, roomVariableDefinitions, targetType, userVariableDefinitions]
+    );
+    const referenceDefinitions = useMemo(
+        () => getTargetDefinitions(referenceTargetType, userVariableDefinitions, furniVariableDefinitions, roomVariableDefinitions, contextVariableDefinitions),
+        [contextVariableDefinitions, furniVariableDefinitions, referenceTargetType, roomVariableDefinitions, userVariableDefinitions]
+    );
+    const variableEntries = useMemo(() => buildWiredVariablePickerEntries(targetType, 'change-reference', targetDefinitions), [targetDefinitions, targetType]);
+    const referenceVariableEntries = useMemo(
+        () => buildWiredVariablePickerEntries(referenceTargetType, 'change-reference', referenceDefinitions),
+        [referenceDefinitions, referenceTargetType]
+    );
+    const resolvedVariableEntries = useMemo(() => {
+        if (!variableToken) return variableEntries;
+        if (flattenWiredVariablePickerEntries(variableEntries).some((entry) => entry.token === variableToken)) return variableEntries;
+
+        const fallbackEntry = createFallbackVariableEntry(targetType, variableToken);
+
+        return fallbackEntry ? [fallbackEntry, ...variableEntries] : variableEntries;
+    }, [targetType, variableEntries, variableToken]);
+    const resolvedReferenceVariableEntries = useMemo(() => {
+        if (!referenceVariableToken) return referenceVariableEntries;
+        if (flattenWiredVariablePickerEntries(referenceVariableEntries).some((entry) => entry.token === referenceVariableToken))
+            return referenceVariableEntries;
+
+        const fallbackEntry = createFallbackVariableEntry(referenceTargetType, referenceVariableToken);
+
+        return fallbackEntry ? [fallbackEntry, ...referenceVariableEntries] : referenceVariableEntries;
+    }, [referenceTargetType, referenceVariableEntries, referenceVariableToken]);
+
+    const destinationSelectionEnabled = isFurniTarget(targetType) && furniSource === SOURCE_SELECTED;
+    const referenceSelectionEnabled = referenceMode === 'variable' && isFurniTarget(referenceTargetType) && referenceFurniSource === SOURCE_SECONDARY_SELECTED;
+    const destinationSelectedSourceValue = isFurniTarget(targetType)
+        ? furniSource
+        : isGlobalTarget(targetType) || isContextTarget(targetType)
+          ? SOURCE_TRIGGER
+          : userSource;
+    const referenceSelectedSourceValue = isFurniTarget(referenceTargetType)
+        ? referenceFurniSource
+        : isGlobalTarget(referenceTargetType) || isContextTarget(referenceTargetType)
+          ? SOURCE_TRIGGER
+          : referenceUserSource;
+
+    const destinationSourceOptions = useMemo(() => {
+        if (isFurniTarget(targetType)) return resolveSourceOptions(orderedFurniSources, destinationSelectedSourceValue, orderedFurniSources);
+        if (isGlobalTarget(targetType)) return GLOBAL_SOURCE_OPTIONS;
+        if (isContextTarget(targetType)) return CONTEXT_SOURCE_OPTIONS;
+
+        return resolveSourceOptions(orderedUserSources, destinationSelectedSourceValue, userSourceFallbackOptions);
+    }, [destinationSelectedSourceValue, orderedFurniSources, orderedUserSources, targetType, userSourceFallbackOptions]);
+
+    const referenceSourceOptions = useMemo(() => {
+        if (isFurniTarget(referenceTargetType)) return resolveSourceOptions(SECONDARY_FURNI_SOURCES, referenceSelectedSourceValue, SECONDARY_FURNI_SOURCES);
+        if (isGlobalTarget(referenceTargetType)) return GLOBAL_SOURCE_OPTIONS;
+        if (isContextTarget(referenceTargetType)) return CONTEXT_SOURCE_OPTIONS;
+
+        return resolveSourceOptions(orderedUserSources, referenceSelectedSourceValue, userSourceFallbackOptions);
+    }, [orderedUserSources, referenceSelectedSourceValue, referenceTargetType, userSourceFallbackOptions]);
+
+    // AIR tints by pick list: the checked picks (stuffIds) the first tint, the reference picks (the second
+    // picks, source 101) the blue one.
+    const syncHighlights = useCallback((nextDestinationIds: number[], nextReferenceIds: number[]) => {
+        highlightedIds.current = WiredSelectionVisualizer.showPickLists(highlightedIds.current, nextDestinationIds, nextReferenceIds);
+    }, []);
+
+    const switchSelection = useCallback(
+        (mode: SelectionMode) => {
+            if (mode === 'destination' && !destinationSelectionEnabled) return;
+            if (mode === 'reference' && !referenceSelectionEnabled) return;
+
+            const nextDestinationIds = selectionMode === 'destination' ? [...furniIds] : [...destinationFurniIds];
+            const nextReferenceIds = selectionMode === 'reference' ? [...furniIds] : [...referenceFurniIds];
+
+            setDestinationFurniIds(nextDestinationIds);
+            setReferenceFurniIds(nextReferenceIds);
+            setSelectionMode(mode);
+            setFurniIds([...(mode === 'destination' ? nextDestinationIds : nextReferenceIds)]);
+        },
+        [destinationFurniIds, destinationSelectionEnabled, furniIds, referenceFurniIds, referenceSelectionEnabled, selectionMode, setFurniIds]
+    );
+
+    useEffect(() => {
+        if (!trigger) return;
+
+        // AIR: variable ids [variable, reference], the reference holders in source slot 1 and its picks as the second
+        // picks; an older server wrote the tokens and the reference picks as the string and the reference sources as
+        // ints 7 and 8.
+        const fromIds = !!trigger.variableIds?.length;
+        const stringParts = fromIds ? [] : parseStringData(trigger.stringData);
+        const nextTargetType = normalizeTargetType(trigger.intData.length > 0 ? fromOfficialVariableTarget(trigger.intData[0]) : TARGET_USER);
+        const nextReferenceTargetType = normalizeTargetType(trigger.intData.length > 5 ? fromOfficialVariableTarget(trigger.intData[5]) : TARGET_USER);
+        const nextDestinationFurniIds = [...(trigger.selectedItems ?? [])];
+        const nextReferenceFurniIds = fromIds ? [...(trigger.selectedItems2 ?? [])] : parseIds(stringParts.length > 2 ? stringParts[2] : '');
+
+        setTargetType(nextTargetType);
+        setVariableToken(readWiredVariableToken(trigger.variableIds, 0, normalizeVariableTokenFromWire(stringParts.length > 0 ? stringParts[0] : '')));
+        setComparison(trigger.intData.length > 1 ? fromOfficialComparison(trigger.intData[1]) : 2);
+        setReferenceMode((trigger.intData.length > 2 ? trigger.intData[2] : REFERENCE_CONSTANT) === REFERENCE_VARIABLE ? 'variable' : 'constant');
+        setReferenceConstantValueInput((trigger.intData.length > 4 ? trigger.intData[4] : 0).toString());
+        setSameHolder(trigger.intData[6] === 1);
+        setReferenceTargetType(nextReferenceTargetType);
+        setReferenceVariableToken(readWiredVariableToken(trigger.variableIds, 1, normalizeVariableTokenFromWire(stringParts.length > 1 ? stringParts[1] : '')));
+        setUserSource(trigger.userSourceTypes?.[0] ?? SOURCE_TRIGGER);
+        setFurniSource(trigger.furniSourceTypes?.[0] ?? (nextDestinationFurniIds.length ? SOURCE_SELECTED : SOURCE_TRIGGER));
+        setReferenceUserSource(trigger.intData.length > 7 ? trigger.intData[7] : (trigger.userSourceTypes?.[1] ?? SOURCE_TRIGGER));
+        setReferenceFurniSource(
+            trigger.intData.length > 8
+                ? trigger.intData[8]
+                : (trigger.furniSourceTypes?.[1] ?? (nextReferenceFurniIds.length ? SOURCE_SECONDARY_SELECTED : SOURCE_TRIGGER))
+        );
+        setDestinationFurniIds(nextDestinationFurniIds);
+        setReferenceFurniIds(nextReferenceFurniIds);
+        setSelectionMode('destination');
+        setFurniIds([...nextDestinationFurniIds]);
+    }, [setFurniIds, trigger]);
+
+    useEffect(() => {
+        if (selectionMode === 'destination') setDestinationFurniIds([...furniIds]);
+        else setReferenceFurniIds([...furniIds]);
+    }, [furniIds, selectionMode]);
+
+    useEffect(() => syncHighlights(destinationFurniIds, referenceFurniIds), [destinationFurniIds, referenceFurniIds, syncHighlights]);
+
+    useEffect(() => WiredSelectionVisualizer.setEditingPickList(selectionMode === 'reference' ? 2 : 1), [selectionMode]);
+
+    useEffect(() => {
+        if (selectionMode === 'destination' && !destinationSelectionEnabled && referenceSelectionEnabled) {
+            switchSelection('reference');
+            return;
+        }
+
+        if (selectionMode === 'reference' && !referenceSelectionEnabled && destinationSelectionEnabled) {
+            switchSelection('destination');
+            return;
+        }
+
+        const canEditSelection = selectionMode === 'destination' ? destinationSelectionEnabled : referenceSelectionEnabled;
+
+        setAllowsFurni(canEditSelection ? WiredFurniType.STUFF_SELECTION_OPTION_BY_ID : WiredFurniType.STUFF_SELECTION_OPTION_NONE);
+    }, [destinationSelectionEnabled, referenceSelectionEnabled, selectionMode, setAllowsFurni, switchSelection]);
+
+    useEffect(() => {
+        return () => {
+            WiredSelectionVisualizer.setEditingPickList(1);
+
+            if (!highlightedIds.current.length) return;
+
+            WiredSelectionVisualizer.clearSelectionShaderFromFurni(highlightedIds.current);
+            WiredSelectionVisualizer.clearSecondarySelectionShaderFromFurni(highlightedIds.current);
+            highlightedIds.current = [];
+        };
+    }, []);
+
+    // AIR VariableValue: "use the same furni or user as the target variable" (createValueOrVariableSection param6) only
+    // counts for a variable reference on the destination's own furni or user holder (readIntParamsFromForm), and then
+    // the reference source is locked (isInputSourceDisabled).
+    const sameHolderActive = referenceMode === 'variable' && sameHolder && isWiredSameHolderEligible(targetType, referenceTargetType);
+
+    const save = () => {
+        const nextDestinationFurniIds = selectionMode === 'destination' ? [...furniIds] : [...destinationFurniIds];
+        const nextReferenceFurniIds = selectionMode === 'reference' ? [...furniIds] : [...referenceFurniIds];
+        const parsedReferenceConstantValue = parseInt(referenceConstantValueInput.trim(), 10);
+
+        setDestinationFurniIds(nextDestinationFurniIds);
+        setReferenceFurniIds(nextReferenceFurniIds);
+        setStringParam('');
+        setVariableIds(
+            wiredVariableIdList(
+                toWiredVariableId(targetType, variableToken),
+                referenceMode === 'variable' ? toWiredVariableId(referenceTargetType, referenceVariableToken) : ''
+            )
+        );
+        const constantValue = Number.isFinite(parsedReferenceConstantValue) ? parsedReferenceConstantValue : 0;
+
+        setIntParams([
+            toOfficialVariableTarget(getTargetValue(targetType)),
+            toOfficialComparison(comparison),
+            referenceMode === 'variable' ? REFERENCE_VARIABLE : REFERENCE_CONSTANT,
+            constantValue < 0 ? -1 : 0,
+            constantValue,
+            toOfficialVariableTarget(getTargetValue(referenceTargetType)),
+            sameHolderActive ? 1 : 0
+        ]);
+        setSourceTypes({ furni: [furniSource, referenceFurniSource], users: [userSource, referenceUserSource] });
+        setFurniIds(isFurniTarget(targetType) && furniSource === SOURCE_SELECTED ? [...nextDestinationFurniIds] : []);
+        setFurniIds2(referenceSelectionEnabled ? [...nextReferenceFurniIds] : []);
+    };
+
+    const validate = () => {
+        if (!variableToken) return false;
+        if (referenceMode === 'variable' && !referenceVariableToken) return false;
+        if (!referenceValid) return false;
+
+        return true;
+    };
+
+    const selectionLimit = trigger?.maximumItemSelectionCount ?? 0;
+
+    const handleTargetChange = (nextTargetType: VariableTargetType) => {
+        if (nextTargetType === targetType) return;
+
+        setTargetType(nextTargetType);
+        setVariableToken('');
+    };
+
+    const handleReferenceTargetChange = (nextTargetType: VariableTargetType) => {
+        if (nextTargetType === referenceTargetType) return;
+
+        setReferenceTargetType(nextTargetType);
+        setReferenceVariableToken('');
+    };
+
+    return (
+        <NativeTextTree>
+            <WiredConditionBaseView
+                hasSpecialInput={true}
+                requiresFurni={WiredFurniType.STUFF_SELECTION_OPTION_NONE}
+                save={save}
+                validate={validate}
+                cardStyle={{ width: 244 }}
+                footerCollapsible={false}
+                footer={
+                    <div className="flex flex-col gap-2">
+                        <WiredFurniSelectionSourceRow
+                            title="wiredfurni.params.sources.merged.title.variables_destination"
+                            options={destinationSourceOptions}
+                            value={destinationSelectedSourceValue}
+                            selectionKind="primary"
+                            selectionActive={destinationSelectionEnabled}
+                            selectionCount={destinationFurniIds.length}
+                            selectionLimit={selectionLimit}
+                            selectionEnabledValues={[SOURCE_SELECTED]}
+                            showSelectionToggle={false}
+                            onChange={(value) => {
+                                if (isFurniTarget(targetType)) {
+                                    setFurniSource(value);
+                                    return;
+                                }
+
+                                if (targetType === 'user') {
+                                    setUserSource(value);
+                                }
+                            }}
+                        />
+
+                    </div>
+                }
+            >
+                <div className="octane-wired__give-var">
+                    <div className="octane-wired__give-var-heading">
+                        <Text>{LocalizeText('wiredfurni.params.variables.variable_selection')}</Text>
+                        <div className="octane-wired__give-var-targets">
+                            {TARGET_BUTTONS.map((button) => (
+                                <BaseButton
+                                    key={button.key}
+                                    type="button"
+                                    disabled={button.disabled}
+                                    className={`octane-wired__give-var-target octane-wired__give-var-target--${button.key} ${targetType === button.key ? 'is-active' : ''}`}
+                                    onClick={() => handleTargetChange(button.key)}
+                                >
+                                    <img src={button.icon} alt={button.key} />
+                                </BaseButton>
+                            ))}
+                        </div>
+                    </div>
+
+                    <WiredVariablePicker
+                        entries={resolvedVariableEntries}
+                        recentScope="variable-conditions"
+                        selectedToken={variableToken}
+                        onSelect={(entry) => setVariableToken(entry.token)}
+                    />
+
+                    <div className="octane-wired__divider" />
+
+                    <div className="octane-wired__give-var-section">
+                        <div className="octane-wired__give-var-section-title">
+                            {localizeWithFallback('wiredfurni.params.comparison_selection', LocalizeText('wiredfurni.params.choose_type'))}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {COMPARISON_OPTIONS.map((option) => (
+                                <label key={option.value} className="flex items-center gap-1">
+                                    <Radio checked={comparison === option.value} name="wiredConditionVariableComparison" onCheckedChange={ () => setComparison(option.value) } />
+                                    <Text>{option.label}</Text>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="octane-wired__divider" />
+
+                    <div className="octane-wired__give-var-section">
+                        <div className="octane-wired__give-var-section-title">{LocalizeText('wiredfurni.params.variables.reference_value')}</div>
+                        <WiredValueOrVariableInput
+                            entries={resolvedReferenceVariableEntries}
+                            isVariable={referenceMode === 'variable'}
+                            label={LocalizeText('wiredfurni.params.variables.reference_value')}
+                            literal={referenceConstantValueInput}
+                            primaryTarget={targetType}
+                            sameHolder={sameHolder}
+                            target={referenceTargetType}
+                            targets={REFERENCE_TARGETS}
+                            token={referenceVariableToken}
+                            renderSource={({ typeSelector, locked }) => (
+                                // AIR VariableValue: the reference value section claims merged slot 1, so its holder is the popup's
+                                // first section; the same holder disables it (isInputSourceDisabled).
+                                <fieldset className="octane-wired__value-popup-locked" disabled={locked}>
+                                    <WiredFurniSelectionSourceRow
+                                        headerContent={typeSelector}
+                                        options={referenceSourceOptions}
+                                        selectionActive={referenceSelectionEnabled}
+                                        selectionCount={referenceFurniIds.length}
+                                        selectionEnabledValues={[SOURCE_SECONDARY_SELECTED]}
+                                        selectionKind="secondary"
+                                        selectionLimit={selectionLimit}
+                                        showSelectionToggle={false}
+                                        title="wiredfurni.params.sources.merged.title.variables"
+                                        value={referenceSelectedSourceValue}
+                                        onChange={(value) => {
+                                            if (isFurniTarget(referenceTargetType)) {
+                                                setReferenceFurniSource(value);
+                                                return;
+                                            }
+
+                                            if (referenceTargetType === 'user') setReferenceUserSource(value);
+                                        }}
+                                    />
+                                </fieldset>
+                            )}
+                            onIsVariableChange={(isVariable) => setReferenceMode(isVariable ? 'variable' : 'constant')}
+                            onLiteralChange={setReferenceConstantValueInput}
+                            onSameHolderChange={setSameHolder}
+                            onTargetChange={handleReferenceTargetChange}
+                            onTokenChange={setReferenceVariableToken}
+                            onValidityChange={setReferenceValid}
+                        />
+                    </div>
+                </div>
+            </WiredConditionBaseView>
+        </NativeTextTree>
+    );
+};

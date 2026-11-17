@@ -1,0 +1,33 @@
+import { RelationshipStatusEnum, RelationshipStatusInfoMessageParser } from '@octane/renderer';
+import { FC } from 'react';
+import { NativeTextTree } from '../../../../../common/native-text/NativeTextTree';
+import { InfoStandWidgetUserRelationshipsRelationshipItemView } from './InfoStandWidgetUserRelationshipItemView';
+
+interface InfoStandWidgetUserRelationshipsViewProps {
+    relationships: RelationshipStatusInfoMessageParser;
+}
+
+export const InfoStandWidgetUserRelationshipsView: FC<InfoStandWidgetUserRelationshipsViewProps> = (props) => {
+    const { relationships = null } = props;
+
+    if (!relationships || !relationships.relationshipStatusMap.length) return null;
+
+    return (
+        <NativeTextTree>
+            <>
+                <InfoStandWidgetUserRelationshipsRelationshipItemView
+                    relationship={relationships.relationshipStatusMap.getValue(RelationshipStatusEnum.HEART)}
+                    type={RelationshipStatusEnum.HEART}
+                />
+                <InfoStandWidgetUserRelationshipsRelationshipItemView
+                    relationship={relationships.relationshipStatusMap.getValue(RelationshipStatusEnum.SMILE)}
+                    type={RelationshipStatusEnum.SMILE}
+                />
+                <InfoStandWidgetUserRelationshipsRelationshipItemView
+                    relationship={relationships.relationshipStatusMap.getValue(RelationshipStatusEnum.BOBBA)}
+                    type={RelationshipStatusEnum.BOBBA}
+                />
+            </>
+        </NativeTextTree>
+    );
+};

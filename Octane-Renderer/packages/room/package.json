@@ -1,0 +1,27 @@
+{
+  "name": "@octane/room",
+  "description": "Octane room module",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "GPL-3.0",
+  "scripts": {
+    "compile": "tsc --project ./tsconfig.json --noEmit false"
+  },
+  "main": "./index",
+  "dependencies": {
+    "@octane/api": "1.0.0",
+    "@octane/assets": "1.0.0",
+    "@octane/avatar": "1.0.0",
+    "@octane/communication": "1.0.0",
+    "@octane/configuration": "1.0.0",
+    "@octane/events": "1.0.0",
+    "@octane/session": "1.0.0",
+    "@octane/utils": "1.0.0",
+    "gifuct-js": "^2.1.2",
+    "pixi-filters": "^6.1.5",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

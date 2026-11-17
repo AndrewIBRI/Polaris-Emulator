@@ -1,0 +1,233 @@
+import { GetRoomEngine, RoomObjectCategory } from '@octane/renderer';
+import { FC, ReactElement, useEffect, useMemo, useState } from 'react';
+import { IsOwnerOfFurniture, LocalizeText, localizeWithFallback } from '../../../../api';
+import {
+    AutoGrid,
+    Button,
+    Column,
+    LayoutGridItem,
+    LayoutLoadingSpinnerView,
+    OctaneCardContentView,
+    OctaneCardHeaderView,
+    OctaneCardView
+} from '../../../../common';
+import { useFurnitureCraftingWidget, useRoom } from '../../../../hooks';
+import { BaseButton } from '../../../../common/BaseButton';
+import { canCraftMixerVerdict, countInMixer, CraftingMixerVerdict, MIXER_CAPACITY } from '../../../../hooks/rooms/widgets/furniture/furnitureCraftingMixer';
+import '../../../../css/room/FurniWindowsCAir.css';
+import { NativeTextTree } from '../../../../common/native-text/NativeTextTree';
+
+/** The official info texts of the free mixer, with English for a hotel whose texts lack them. */
+const MIXER_INFO: Record<CraftingMixerVerdict, [key: string, fallback: string]> = {
+    hit: ['crafting.info.mixer.hit', 'You have found a secret recipe!'],
+    hitPlusOthers: ['crafting.info.mixer.hit.plus.others', 'You have found a secret recipe! %number% more recipes start with these furni.'],
+    others: ['crafting.info.mixer.others', '%number% secret recipes start with these furni. Keep adding.'],
+    nohit: ['crafting.info.mixer.nohit', 'Nothing can be made from these furni.']
+};
+
+export const FurnitureCraftingView: FC<{}> = (props) => {
+    const {
+        objectId = -1,
+        recipes = [],
+        ingredients = [],
+        selectedRecipe = null,
+        requiredIngredients = null,
+        isCrafting = false,
+        mixerItems = [],
+        mixerVerdict = null,
+        craft = null,
+        selectRecipe = null,
+        addToMixer = null,
+        removeFromMixer = null,
+        craftMixer = null,
+        onClose = null
+    } = useFurnitureCraftingWidget();
+    const { roomSession = null } = useRoom();
+    const [waitingToConfirm, setWaitingToConfirm] = useState(false);
+
+    const isOwner = useMemo(() => {
+        const roomObject = GetRoomEngine().getRoomObject(roomSession.roomId, objectId, RoomObjectCategory.FLOOR);
+        return IsOwnerOfFurniture(roomObject);
+    }, [objectId, roomSession]);
+
+    const canCraft = useMemo(() => {
+        if (!requiredIngredients || !requiredIngredients.length) return false;
+
+        for (const ingredient of requiredIngredients) {
+            const ingredientData = ingredients.find((data) => data.name === ingredient.itemName);
+
+            if (!ingredientData || ingredientData.count < ingredient.count) return false;
+        }
+
+        return true;
+    }, [ingredients, requiredIngredients]);
+
+    const tryCraft = () => {
+        if (!waitingToConfirm) {
+            setWaitingToConfirm(true);
+
+            return;
+        }
+
+        craft();
+        setWaitingToConfirm(false);
+    };
+
+    useEffect(() => {
+        setWaitingToConfirm(false);
+    }, [selectedRecipe]);
+
+    if (objectId === -1) return null;
+
+    return (
+        <NativeTextTree>
+            <OctaneCardView className="octane-widget-crafting" theme="primary-slim">
+                <OctaneCardHeaderView headerText={LocalizeText('crafting.title')} onCloseClick={onClose} />
+                <OctaneCardContentView>
+                    <div className="crafting-widget-layout flex grow! gap-2 overflow-hidden">
+                        <div className="crafting-widget-pane flex flex-col w-full gap-2 min-w-0">
+                            <Column fullHeight overflow="hidden">
+                                <div className="octane-crafting__heading bg-muted rounded py-1 text-center">{LocalizeText('crafting.title.products')}</div>
+                                <AutoGrid columnCount={5}>
+                                    {recipes.length > 0 &&
+                                        recipes.map((item) => (
+                                            <LayoutGridItem component={BaseButton} type="button"
+                                                key={item.name}
+                                                itemActive={selectedRecipe && selectedRecipe.name === item.name}
+                                                itemImage={item.iconUrl}
+                                                onClick={() => selectRecipe(item)}
+                                            />
+                                        ))}
+                                </AutoGrid>
+                            </Column>
+                            <Column fullHeight overflow="hidden">
+                                <div className="octane-crafting__heading bg-muted rounded py-1 text-center">{LocalizeText('crafting.title.mixer')}</div>
+                                <AutoGrid columnCount={5}>
+                                    {/* A click lays one furni of the kind in the free mixer; what lies there no longer counts. */}
+                                    {ingredients.length > 0 &&
+                                        ingredients.map((item) => {
+                                            const available = item.count - countInMixer(item.name, mixerItems);
+                                            const canAdd = isOwner && !isCrafting && available > 0 && mixerItems.length < MIXER_CAPACITY;
+
+                                            return (
+                                                <LayoutGridItem component={BaseButton} type="button"
+                                                    key={item.name}
+                                                    aria-label={item.name}
+                                                    className={available <= 0 ? 'opacity-50 ' : ''}
+                                                    disabled={!canAdd}
+                                                    itemCount={available}
+                                                    itemCountMinimum={0}
+                                                    itemImage={item.iconUrl}
+                                                    onClick={() => addToMixer(item)}
+                                                />
+                                            );
+                                        })}
+                                </AutoGrid>
+                            </Column>
+                        </div>
+                        <div className="crafting-widget-pane flex flex-col w-full gap-2 min-w-0">
+                            {!selectedRecipe && !mixerItems.length && (
+                                <Column center fullHeight className="octane-crafting__info text-black text-center">
+                                    {LocalizeText('crafting.info.start')}
+                                </Column>
+                            )}
+                            {!selectedRecipe && mixerItems.length > 0 && (
+                                <>
+                                    <div className="flex flex-col h-full overflow-hidden">
+                                        <div className="octane-crafting__heading bg-muted rounded py-1 text-center">{LocalizeText('crafting.title.mixer')}</div>
+                                        <AutoGrid columnCount={5}>
+                                            {mixerItems.map((item) => (
+                                                <LayoutGridItem component={BaseButton} type="button"
+                                                    key={item.inventoryId}
+                                                    aria-label={item.name}
+                                                    disabled={isCrafting}
+                                                    itemImage={item.iconUrl}
+                                                    onClick={() => removeFromMixer(item.inventoryId)}
+                                                />
+                                            ))}
+                                        </AutoGrid>
+                                    </div>
+                                    <div className="flex flex-col h-full gap-2">
+                                        <Column center fullHeight className="octane-crafting__info bg-muted rounded text-black text-center px-2">
+                                            {mixerVerdict &&
+                                                localizeWithFallback(MIXER_INFO[mixerVerdict.verdict][0], MIXER_INFO[mixerVerdict.verdict][1], ['number'], [mixerVerdict.count.toString()])}
+                                        </Column>
+                                        <Button
+                                            disabled={!isOwner || isCrafting || !canCraftMixerVerdict(mixerVerdict?.verdict ?? null)}
+                                            variant={!isOwner || !canCraftMixerVerdict(mixerVerdict?.verdict ?? null) ? 'danger' : isCrafting ? 'primary' : 'success'}
+                                            onClick={craftMixer}
+                                        >
+                                            {!isCrafting &&
+                                                (!isOwner
+                                                    ? LocalizeText('crafting.btn.notowner')
+                                                    : canCraftMixerVerdict(mixerVerdict?.verdict ?? null)
+                                                      ? LocalizeText('crafting.btn.craft')
+                                                      : localizeWithFallback('crafting.status.mixer.notavailable', 'Not available'))}
+                                            {isCrafting && <LayoutLoadingSpinnerView />}
+                                        </Button>
+                                    </div>
+                                </>
+                            )}
+                            {selectedRecipe && (
+                                <>
+                                    <div className="flex flex-col h-full overflow-hidden">
+                                        <div className="octane-crafting__heading bg-muted rounded py-1 text-center">{LocalizeText('crafting.current_recipe')}</div>
+                                        <AutoGrid columnCount={5}>
+                                            {!!requiredIngredients &&
+                                                requiredIngredients.length > 0 &&
+                                                requiredIngredients.map((ingredient) => {
+                                                    const ingredientData = ingredients.find((i) => i.name === ingredient.itemName);
+
+                                                    const elements: ReactElement[] = [];
+
+                                                    for (let i = 0; i < ingredient.count; i++) {
+                                                        elements.push(
+                                                            <LayoutGridItem
+                                                                key={i}
+                                                                className={(ingredientData.count - i <= 0 ? 'opacity-50 ' : '') + 'cursor-default'}
+                                                                itemImage={ingredientData.iconUrl}
+                                                            />
+                                                        );
+                                                    }
+
+                                                    return elements;
+                                                })}
+                                        </AutoGrid>
+                                    </div>
+                                    <div className="flex flex-col h-full gap-2">
+                                        <div className="flex flex-col h-full bg-muted rounded gap-2">
+                                            <div className="octane-crafting__heading py-1 text-center">{LocalizeText('crafting.result')}</div>
+                                            <div className="flex items-center justify-center flex-col h-full pb-1 gap-1">
+                                                <div className="flex flex-col h-full">
+                                                    <img alt="" src={selectedRecipe.iconUrl} />
+                                                </div>
+                                                <div className="octane-crafting__info text-black">{selectedRecipe.localizedName}</div>
+                                            </div>
+                                        </div>
+                                        <Button
+                                            disabled={!isOwner || !canCraft || isCrafting}
+                                            variant={!isOwner || !canCraft ? 'danger' : waitingToConfirm ? 'warning' : isCrafting ? 'primary' : 'success'}
+                                            onClick={tryCraft}
+                                        >
+                                            {!isCrafting &&
+                                                LocalizeText(
+                                                    !isOwner
+                                                        ? 'crafting.btn.notowner'
+                                                        : !canCraft
+                                                          ? 'crafting.status.recipe.incomplete'
+                                                          : waitingToConfirm
+                                                            ? 'generic.confirm'
+                                                            : 'crafting.btn.craft'
+                                                )}
+                                            {isCrafting && <LayoutLoadingSpinnerView />}
+                                        </Button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </OctaneCardContentView>
+            </OctaneCardView>
+        </NativeTextTree>
+    );
+};

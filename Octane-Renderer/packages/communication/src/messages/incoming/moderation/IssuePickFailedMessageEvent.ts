@@ -1,0 +1,16 @@
+import { IMessageEvent } from '@octane/api';
+import { MessageEvent } from '@octane/events';
+import { IssuePickFailedMessageParser } from '../../parser';
+
+export class IssuePickFailedMessageEvent extends MessageEvent implements IMessageEvent
+{
+    constructor(callBack: Function)
+    {
+        super(callBack, IssuePickFailedMessageParser);
+    }
+
+    public getParser(): IssuePickFailedMessageParser
+    {
+        return this.parser as IssuePickFailedMessageParser;
+    }
+}
