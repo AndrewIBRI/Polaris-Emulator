@@ -31,6 +31,14 @@ Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyP
 - **MariaDB externo** (serviço EasyPanel `polaris-db`), não embutido no container
 - **Build do cliente e do jar dentro do Docker** (multi-stage) — sem artefatos binários no repo
 
+## Paths de URL (importante)
+- `/assets/` = bundle Vite do cliente (dist/assets/ do build) — o loader do Octane
+  consulta `/assets/index-<hash>.js` com hash embutido no build
+- `/gameassets/` = pack do jogo (furni, clothes, gamedata, c_images, sounds) —
+  movido de `/assets/` para não colidir com o bundle do cliente (404 no client)
+- `/configuration/` = JSONs gerados pelo entrypoint (renderer-config aponta
+  `asset.url` para `/gameassets`); `/imager/` = output; `/ws` + `/api/` = emulador
+
 ## Estado do deploy
 - **ONLINE**: https://server-polaris-hotel.00behz.easypanel.host (HTTP 200, WS 101, registro OK)
 - EasyPanel projeto `server`: app `polaris-hotel` (repo AndrewIBRI/Polaris-Emulator, main, autoDeploy) + MariaDB `polaris-db` (db/user: polaris)
