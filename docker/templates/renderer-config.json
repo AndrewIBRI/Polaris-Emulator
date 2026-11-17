@@ -16,7 +16,7 @@
     "sounds.url": "${asset.url}/sounds/%sample%.mp3",
     "hof.furni.url": "${asset.url}/hof_furni",
     "// ---- Game data and language ----": "",
-    "base.locale": "nl",
+    "base.locale": "en",
     "external.texts.url": [
         "${gamedata.url}/ExternalTexts.json",
         "${gamedata.url}/UITexts.json"
