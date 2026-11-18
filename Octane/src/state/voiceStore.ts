@@ -1,5 +1,20 @@
 import { createOctaneStore } from './createOctaneStore';
 
+/** One video tile in the transmission window (local preview or remote stream). */
+export interface VoiceVideo
+{
+    /** Unique key: participantIdentity + ':' + source. */
+    id: string;
+    /** LiveKit participant identity (user-<id>) or 'Eu'. */
+    identity: string;
+    /** 'camera' | 'screen' */
+    source: 'camera' | 'screen';
+    /** The video MediaStreamTrack to render in a <video> element. */
+    track: MediaStreamTrack;
+    /** True when the track is our own local publish (no audio, show "Você"). */
+    local: boolean;
+}
+
 /**
  * In-room voice state (LiveKit self-hosted, docs/PLANO-VOZ-CAMERA.md):
  * HUD switches, spatial ("proximity") mode vs "assembleia" (everyone hears
@@ -31,6 +46,10 @@ interface VoiceState {
     speakerDeviceId: string;
     /** Remote audio volume, 0..1 (persisted). */
     volume: number;
+    /** Video tiles currently published in the room (local + remote). */
+    videos: VoiceVideo[];
+    /** Whether the transmission window is open. */
+    videoWindowVisible: boolean;
 
     setUrl: (url: string) => void;
     setToken: (token: string) => void;
@@ -48,6 +67,11 @@ interface VoiceState {
     setMicDeviceId: (micDeviceId: string) => void;
     setSpeakerDeviceId: (speakerDeviceId: string) => void;
     setVolume: (volume: number) => void;
+    /** Adds/updates a video tile; opening a new one re-opens the window. */
+    addVideo: (video: VoiceVideo) => void;
+    removeVideo: (id: string) => void;
+    clearVideos: () => void;
+    setVideoWindowVisible: (visible: boolean) => void;
 }
 
 const STORAGE_KEY = 'octane:voice:auto-mute-on-blur';
@@ -105,6 +129,21 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     micDeviceId: loadPref('mic-device', ''),
     speakerDeviceId: loadPref('speaker-device', ''),
     volume: parseFloat(loadPref('volume', '1')) || 1,
+    videos: [],
+    videoWindowVisible: true,
+
+    addVideo: (video) => set((state) =>
+    {
+        const videos = state.videos.filter((existing) => existing.id !== video.id);
+
+        videos.push(video);
+
+        // a new stream arriving re-opens the transmission window
+        return { videos, videoWindowVisible: true };
+    }),
+    removeVideo: (id) => set((state) => ({ videos: state.videos.filter((video) => video.id !== id) })),
+    clearVideos: () => set({ videos: [] }),
+    setVideoWindowVisible: (videoWindowVisible) => set({ videoWindowVisible }),
 
     setError: (error) => set({ error }),
     setDevices: (devices) => set({ devices }),

@@ -87,7 +87,7 @@ export const VoiceWidgetView: FC<{}> = (props) =>
             <div className="octane-voice-widget__settings" ref={ menuRef }>
                 <button
                     type="button"
-                    className={ classNames('octane-voice-widget__button', menuOpen && 'is-active') }
+                    className={ classNames('octane-voice-widget__button', 'is-settings', menuOpen && 'is-active') }
                     onClick={ () => setMenuOpen(!menuOpen) }
                     title="Configurações de voz">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

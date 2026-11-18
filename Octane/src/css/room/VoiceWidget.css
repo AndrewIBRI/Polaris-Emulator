@@ -23,10 +23,12 @@
     justify-content: center;
     border-radius: 4px;
     border: none;
-    background: transparent;
     cursor: pointer;
     position: relative;
-    opacity: 0.55;
+
+    /* desligado = vermelho bem leve (estado "off" visível) */
+    background: rgba(255, 82, 82, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(255, 82, 82, 0.25);
 
     .octane-icon {
         width: 20px;
@@ -35,14 +37,26 @@
         background-size: contain;
         background-repeat: no-repeat;
         background-position: center;
-        filter: grayscale(1) brightness(1.6);
+        filter: grayscale(1) brightness(1.35) sepia(0.4) hue-rotate(-40deg);
     }
 
+    /* ligado = verde inconfundível */
     &.is-active {
         opacity: 1;
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(46, 204, 113, 0.35);
+        box-shadow: inset 0 0 0 1px rgba(46, 204, 113, 0.8);
 
         .octane-icon {
+            filter: drop-shadow(0 0 3px rgba(46, 204, 113, 0.9));
+        }
+    }
+
+    /* engrenagem: neutra quando o menu abre */
+    &.is-settings.is-active {
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+
+        .octane-icon, svg {
             filter: none;
         }
     }
@@ -155,4 +169,85 @@
     font-weight: bold;
     letter-spacing: 0.5px;
     white-space: nowrap;
+}
+
+/* ---- Janela de transmissão (vídeo de câmera/tela, local + remoto) ---- */
+.octane-video-window {
+    width: 480px;
+}
+
+.octane-video-window__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 6px;
+    padding: 6px;
+    background: #101014;
+}
+
+.octane-video-window__tile {
+    position: relative;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 16 / 9;
+}
+
+.octane-video-window__video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.octane-video-window__label {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.octane-video-window__controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.octane-video-window__btn {
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
+}
+
+.octane-video-window__volume {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #fff;
+    font-size: 11px;
+    white-space: nowrap;
+
+    input[type='range'] {
+        width: 110px;
+        accent-color: #2ecc71;
+    }
+}
+
+/* fullscreen: a grade ocupa tudo */
+.octane-video-window__grid:fullscreen {
+    padding: 12px;
 }

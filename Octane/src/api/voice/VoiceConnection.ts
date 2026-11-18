@@ -153,6 +153,12 @@ class VoiceConnection
 
         useVoiceStore.getState().setCamOn(enabled);
 
+        // keep the transmission window in sync with the local camera
+        const cameraPub = participant.getTrackPublication(Track.Source.Camera);
+
+        if(enabled && cameraPub?.track) this._upsertVideo(cameraPub.track, participant.identity, 'camera', true);
+        else this._removeVideo(participant.identity, 'camera');
+
         return true;
     }
 
@@ -184,6 +190,12 @@ class VoiceConnection
         }
 
         useVoiceStore.getState().setScreenOn(enabled);
+
+        // keep the transmission window in sync with the local screen share
+        const screenPub = participant.getTrackPublication(Track.Source.ScreenShare);
+
+        if(enabled && screenPub?.track) this._upsertVideo(screenPub.track, participant.identity, 'screen', true);
+        else this._removeVideo(participant.identity, 'screen');
 
         return true;
     }
@@ -241,7 +253,7 @@ class VoiceConnection
         store.setSpeakerDeviceId(deviceId);
     }
 
-    /** Applies the saved volume to every subscribed remote mic track. */
+    /** Applies the saved volume to every subscribed remote mic/screen-audio track. */
     public setVolume(volume: number): void
     {
         const store = useVoiceStore.getState();
@@ -250,10 +262,30 @@ class VoiceConnection
 
         for(const participant of Array.from(this._room?.remoteParticipants.values() ?? []))
         {
-            const track = participant.getTrackPublication(Track.Source.Microphone)?.track as RemoteAudioTrack | undefined;
+            for(const source of [ Track.Source.Microphone, Track.Source.ScreenShareAudio ])
+            {
+                const track = participant.getTrackPublication(source)?.track as RemoteAudioTrack | undefined;
 
-            if(track && typeof track.setVolume === 'function') track.setVolume(volume);
+                if(track && typeof track.setVolume === 'function') track.setVolume(volume);
+            }
         }
+    }
+
+    /** Registers/updates a video tile in the transmission window. */
+    private _upsertVideo(track: Track, identity: string, source: 'camera' | 'screen', local: boolean): void
+    {
+        const streamTrack = (track as unknown as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack;
+
+        if(!streamTrack) return;
+
+        useVoiceStore.getState().addVideo({ id: identity + ':' + source, identity, source, track: streamTrack, local });
+
+        console.log('[Octane] [Voice] vídeo na janela:', identity, source, local ? '(local)' : '(remoto)');
+    }
+
+    private _removeVideo(identity: string, source: 'camera' | 'screen'): void
+    {
+        useVoiceStore.getState().removeVideo(identity + ':' + source);
     }
 
     private _localParticipant(): LocalParticipant
@@ -271,7 +303,7 @@ class VoiceConnection
         room.on(RoomEvent.ParticipantConnected, () => this._refreshRemoteCount());
         room.on(RoomEvent.ParticipantDisconnected, () => this._refreshRemoteCount());
 
-        room.on(RoomEvent.TrackSubscribed, (track: Track) =>
+        room.on(RoomEvent.TrackSubscribed, (track: Track, _publication: unknown, participant: RemoteParticipant) =>
         {
             console.log('[Octane] [Voice] track remoto recebido:', track.source, track.kind);
 
@@ -286,13 +318,29 @@ class VoiceConnection
 
                 this._refreshRemoteCount();
             }
+            else if(track.source === Track.Source.Camera)
+            {
+                this._upsertVideo(track, participant.identity, 'camera', false);
+            }
+            else if(track.source === Track.Source.ScreenShare)
+            {
+                this._upsertVideo(track, participant.identity, 'screen', false);
+            }
         });
 
-        room.on(RoomEvent.TrackUnsubscribed, (track: Track) =>
+        room.on(RoomEvent.TrackUnsubscribed, (track: Track, _publication: unknown, participant: RemoteParticipant) =>
         {
             if(track.source === Track.Source.Microphone)
             {
                 track.detach().forEach((element) => element.remove());
+            }
+            else if(track.source === Track.Source.Camera)
+            {
+                this._removeVideo(participant.identity, 'camera');
+            }
+            else if(track.source === Track.Source.ScreenShare)
+            {
+                this._removeVideo(participant.identity, 'screen');
             }
         });
 
@@ -305,6 +353,7 @@ class VoiceConnection
             useVoiceStore.getState().setCamOn(false);
             useVoiceStore.getState().setScreenOn(false);
             useVoiceStore.getState().setRemoteCount(0);
+            useVoiceStore.getState().clearVideos();
         });
 
         for(const participant of Array.from(room.remoteParticipants.values()))
@@ -312,6 +361,8 @@ class VoiceConnection
             participant.on(ParticipantEvent.TrackSubscribed, (track: Track) =>
             {
                 if(track.source === Track.Source.Microphone) track.attach();
+                else if(track.source === Track.Source.Camera) this._upsertVideo(track, participant.identity, 'camera', false);
+                else if(track.source === Track.Source.ScreenShare) this._upsertVideo(track, participant.identity, 'screen', false);
             });
 
             participant.on(ParticipantEvent.TrackUnsubscribed, (track: Track) =>
@@ -319,6 +370,14 @@ class VoiceConnection
                 if(track.source === Track.Source.Microphone)
                 {
                     track.detach().forEach((element) => element.remove());
+                }
+                else if(track.source === Track.Source.Camera)
+                {
+                    this._removeVideo(participant.identity, 'camera');
+                }
+                else if(track.source === Track.Source.ScreenShare)
+                {
+                    this._removeVideo(participant.identity, 'screen');
                 }
             });
         }

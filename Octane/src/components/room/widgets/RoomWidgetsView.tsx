@@ -39,6 +39,7 @@ import { applyRoomZoom } from './room-tools/roomZoom.helpers';
 import { WiredContractWidgetView } from './wired-contract/WiredContractWidgetView';
 import { WiredLinkWidgetView } from './wired-link/WiredLinkWidgetView';
 import { WordQuizWidgetView } from './word-quiz/WordQuizWidgetView';
+import { VideoWindowView } from './voice/VideoWindowView';
 import { VoiceWidgetView } from './voice/VoiceWidgetView';
 import { NativeTextTree } from '../../../common/native-text/NativeTextTree';
 
@@ -279,6 +280,7 @@ export const RoomWidgetsView: FC<{}> = (props) => {
                 </WidgetErrorBoundary>
                 <WidgetErrorBoundary name="VoiceWidget">
                     <VoiceWidgetView />
+                    <VideoWindowView />
                 </WidgetErrorBoundary>
                 <WidgetErrorBoundary name="RoomFilterWordsWidget">
                     <RoomFilterWordsWidgetView />
