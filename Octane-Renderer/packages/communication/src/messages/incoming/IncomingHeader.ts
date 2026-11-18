@@ -788,4 +788,7 @@ export class IncomingHeader
     // AIR avatar collectibles (avatar editor NFT tab, server -> client), official ids.
     public static USER_NFT_WARDROBE = 2236;
     public static SELECTED_NFT_WARDROBE_OUTFIT = 350;
+    // Voice (LiveKit self-hosted, server -> client), custom ids.
+    public static VOICE_TOKEN = 6101;
+    public static VOICE_ROOM_STATE = 6104;
 }

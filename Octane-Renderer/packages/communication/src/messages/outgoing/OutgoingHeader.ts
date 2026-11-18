@@ -829,4 +829,6 @@ export class OutgoingHeader
     public static GET_USER_NFT_WARDROBE = 3206;
     public static SAVE_USER_NFT_WARDROBE = 133;
     public static GET_SELECTED_NFT_WARDROBE_OUTFIT = 3810;
+    // Voice (LiveKit self-hosted, client -> server), custom ids.
+    public static GET_VOICE_TOKEN = 6102;
 }

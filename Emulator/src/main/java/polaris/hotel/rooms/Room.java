@@ -2056,7 +2056,7 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
 
     public void setVoiceAssembly(boolean value) {
         this.voiceAssembly = value;
-        this.sendComposer(new polaris.messages.outgoing.voice.VoiceRoomStateComposer(this.getId(), this.voiceAssembly));
+        this.sendComposer(new polaris.messages.outgoing.voice.VoiceRoomStateComposer(this.getId(), this.voiceAssembly).compose());
     }
 
     public boolean hasActiveWordQuiz() {
