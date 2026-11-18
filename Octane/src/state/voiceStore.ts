@@ -22,6 +22,15 @@ interface VoiceState {
     autoMuteOnBlur: boolean;
     /** True while the auto-mute is active (focus left, mic forced off). */
     autoMuted: boolean;
+    /** Last permission/device error message, shown in the settings menu. */
+    error: string;
+    /** Audio/video devices detected in the browser. */
+    devices: MediaDeviceInfo[];
+    /** Selected devices (persisted). */
+    micDeviceId: string;
+    speakerDeviceId: string;
+    /** Remote audio volume, 0..1 (persisted). */
+    volume: number;
 
     setUrl: (url: string) => void;
     setToken: (token: string) => void;
@@ -34,9 +43,38 @@ interface VoiceState {
     setRemoteCount: (remoteCount: number) => void;
     setAutoMuteOnBlur: (autoMuteOnBlur: boolean) => void;
     setAutoMuted: (autoMuted: boolean) => void;
+    setError: (error: string) => void;
+    setDevices: (devices: MediaDeviceInfo[]) => void;
+    setMicDeviceId: (micDeviceId: string) => void;
+    setSpeakerDeviceId: (speakerDeviceId: string) => void;
+    setVolume: (volume: number) => void;
 }
 
 const STORAGE_KEY = 'octane:voice:auto-mute-on-blur';
+
+const loadPref = (key: string, fallback: string): string =>
+{
+    try
+    {
+        return window.localStorage.getItem('octane:voice:' + key) ?? fallback;
+    }
+    catch
+    {
+        return fallback;
+    }
+};
+
+const savePref = (key: string, value: string): void =>
+{
+    try
+    {
+        window.localStorage.setItem('octane:voice:' + key, value);
+    }
+    catch
+    {
+        // storage can be blocked; the preference just won't persist
+    }
+};
 
 const loadAutoMuteOnBlur = (): boolean =>
 {
@@ -62,6 +100,17 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     remoteCount: 0,
     autoMuteOnBlur: loadAutoMuteOnBlur(),
     autoMuted: false,
+    error: '',
+    devices: [],
+    micDeviceId: loadPref('mic-device', ''),
+    speakerDeviceId: loadPref('speaker-device', ''),
+    volume: parseFloat(loadPref('volume', '1')) || 1,
+
+    setError: (error) => set({ error }),
+    setDevices: (devices) => set({ devices }),
+    setMicDeviceId: (micDeviceId) => { savePref('mic-device', micDeviceId); set({ micDeviceId }); },
+    setSpeakerDeviceId: (speakerDeviceId) => { savePref('speaker-device', speakerDeviceId); set({ speakerDeviceId }); },
+    setVolume: (volume) => { savePref('volume', String(volume)); set({ volume }); },
 
     setUrl: (url) => set({ url }),
     setToken: (token) => set({ token }),

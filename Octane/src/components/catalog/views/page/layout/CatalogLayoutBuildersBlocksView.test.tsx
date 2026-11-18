@@ -79,7 +79,7 @@ describe('CatalogLayoutBuildersBlocksView (page 117 - Blocos do Alfabeto)', () =
 
     it('renders with an empty page', () =>
     {
-        render(<CatalogLayoutBuildersBlocksView page={makePage(0, 0)} />);
+        render(<CatalogLayoutBuildersBlocksView page={makePage(0, 0)} hideNavigation={ () => {} } />);
 
         expect(document.querySelector('.octane-catalog-builders-blocks')).not.toBeNull();
     });

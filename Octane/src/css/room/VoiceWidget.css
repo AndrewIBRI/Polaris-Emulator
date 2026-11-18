@@ -54,6 +54,78 @@
     }
 }
 
+.octane-voice-widget__button.is-error {
+    .octane-icon {
+        filter: grayscale(1) brightness(1.2) sepia(1) hue-rotate(-35deg) saturate(4);
+    }
+}
+
+.octane-voice-widget__settings {
+    position: relative;
+}
+
+.octane-voice-widget__menu {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    width: 240px;
+    padding: 10px;
+    border-radius: 6px;
+    background: rgba(34, 34, 30, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+    color: #eee;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 80;
+}
+
+.octane-voice-widget__menu-status {
+    font-weight: bold;
+    color: #9ade7f;
+}
+
+.octane-voice-widget__menu-error {
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: rgba(227, 86, 74, 0.18);
+    border: 1px solid rgba(227, 86, 74, 0.55);
+    color: #ff9b93;
+    line-height: 1.4;
+}
+
+.octane-voice-widget__menu-label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-weight: bold;
+
+    select {
+        background: #22221e;
+        color: #eee;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+        padding: 3px;
+        font-size: 11px;
+    }
+
+    input[type='range'] {
+        accent-color: #7ac4ff;
+    }
+}
+
+.octane-voice-widget__menu-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    label {
+        cursor: pointer;
+    }
+}
+
 .octane-voice-widget__badge {
     position: absolute;
     top: -4px;

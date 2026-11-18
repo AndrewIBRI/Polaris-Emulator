@@ -1,4 +1,4 @@
-import { LocalParticipant, ParticipantEvent, RemoteParticipant, Room, RoomEvent, Track } from 'livekit-client';
+import { LocalParticipant, ParticipantEvent, RemoteAudioTrack, RemoteParticipant, Room, RoomEvent, Track } from 'livekit-client';
 import { useVoiceStore } from '../../state/voiceStore';
 
 /**
@@ -9,6 +9,19 @@ import { useVoiceStore } from '../../state/voiceStore';
  * decides who connects where. Remote mic audio is auto-attached to <audio>
  * elements so browsers play it without extra UI.
  */
+/** Maps browser getUserMedia/getDisplayMedia failures to short pt-BR hints. */
+const describeMediaError = (error: unknown): string =>
+{
+    const name = (error as { name?: string; message?: string })?.name ?? '';
+
+    if(name.includes('NotAllowed') || name.includes('Permission')) return 'Permissão negada no navegador — libere mic/câmera nas configurações do site (ícone do cadeado na barra de endereço).';
+    if(name.includes('NotFound')) return 'Nenhum dispositivo encontrado.';
+    if(name.includes('NotReadable')) return 'O dispositivo está em uso por outro aplicativo.';
+    if(name.includes('getDisplayMedia') || name.includes('AbortError')) return 'Compartilhamento de tela cancelado.';
+
+    return 'Falha ao acessar o dispositivo: ' + (name || 'erro desconhecido');
+};
+
 class VoiceConnection
 {
     private _room: Room = null;
@@ -33,10 +46,12 @@ class VoiceConnection
 
             useVoiceStore.getState().setConnected(true);
             useVoiceStore.getState().setConnecting(false);
+            useVoiceStore.getState().setError('');
             useVoiceStore.getState().setMicOn(false);
             useVoiceStore.getState().setCamOn(false);
             useVoiceStore.getState().setScreenOn(false);
             this._refreshRemoteCount();
+            this.refreshDevices();
         }
         catch (error)
         {
@@ -79,8 +94,10 @@ class VoiceConnection
         {
             await participant.setMicrophoneEnabled(enabled);
         }
-        catch
+        catch (error)
         {
+            useVoiceStore.getState().setError(describeMediaError(error));
+
             return false;
         }
 
@@ -100,8 +117,10 @@ class VoiceConnection
         {
             await participant.setCameraEnabled(enabled);
         }
-        catch
+        catch (error)
         {
+            useVoiceStore.getState().setError(describeMediaError(error));
+
             return false;
         }
 
@@ -118,16 +137,87 @@ class VoiceConnection
 
         try
         {
-            await participant.setScreenShareEnabled(enabled);
+            await participant.setScreenShareEnabled(enabled, { audio: true });
         }
-        catch
+        catch (error)
         {
+            useVoiceStore.getState().setError(describeMediaError(error));
+            useVoiceStore.getState().setScreenOn(!enabled); // revert (e.g. picker cancelled)
+
             return false;
         }
 
         useVoiceStore.getState().setScreenOn(enabled);
 
         return true;
+    }
+
+    /** Lists the browser's mic/camera/speaker devices (labels need prior permission). */
+    public async refreshDevices(): Promise<void>
+    {
+        try
+        {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+
+            useVoiceStore.getState().setDevices(devices);
+        }
+        catch
+        {
+            // without permission the list comes back empty-labeled; not fatal
+        }
+    }
+
+    public async setMicDevice(deviceId: string): Promise<void>
+    {
+        const store = useVoiceStore.getState();
+
+        if(this.isConnected && this._room.switchActiveDevice)
+        {
+            try
+            {
+                await this._room.switchActiveDevice('audioinput', deviceId);
+            }
+            catch (error)
+            {
+                store.setError(describeMediaError(error));
+            }
+        }
+
+        store.setMicDeviceId(deviceId);
+    }
+
+    public async setSpeakerDevice(deviceId: string): Promise<void>
+    {
+        const store = useVoiceStore.getState();
+
+        if(this.isConnected && this._room.switchActiveDevice)
+        {
+            try
+            {
+                await this._room.switchActiveDevice('audiooutput', deviceId);
+            }
+            catch (error)
+            {
+                store.setError(describeMediaError(error));
+            }
+        }
+
+        store.setSpeakerDeviceId(deviceId);
+    }
+
+    /** Applies the saved volume to every subscribed remote mic track. */
+    public setVolume(volume: number): void
+    {
+        const store = useVoiceStore.getState();
+
+        store.setVolume(volume);
+
+        for(const participant of Array.from(this._room?.remoteParticipants.values() ?? []))
+        {
+            const track = participant.getTrackPublication(Track.Source.Microphone)?.track as RemoteAudioTrack | undefined;
+
+            if(track && typeof track.setVolume === 'function') track.setVolume(volume);
+        }
     }
 
     private _localParticipant(): LocalParticipant
@@ -150,6 +240,11 @@ class VoiceConnection
             if(track.source === Track.Source.Microphone)
             {
                 track.attach(); // creates + plays an <audio> element automatically
+
+                const { volume } = useVoiceStore.getState();
+                const remote = track as RemoteAudioTrack;
+
+                if(typeof remote.setVolume === 'function') remote.setVolume(volume);
 
                 this._refreshRemoteCount();
             }

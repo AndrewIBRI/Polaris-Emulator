@@ -51,6 +51,14 @@ export const useVoice = () =>
         voiceConnection.setScreenShareEnabled(!screenOn);
     }, []);
 
+    const refreshDevices = useCallback(() => voiceConnection.refreshDevices(), []);
+
+    const setMicDevice = useCallback((deviceId: string) => voiceConnection.setMicDevice(deviceId), []);
+
+    const setSpeakerDevice = useCallback((deviceId: string) => voiceConnection.setSpeakerDevice(deviceId), []);
+
+    const setVolume = useCallback((volume: number) => voiceConnection.setVolume(volume), []);
+
     useMessageEvent<VoiceTokenEvent>(VoiceTokenEvent, (event) =>
     {
         const parser = event.getParser();
@@ -108,5 +116,5 @@ export const useVoice = () =>
         };
     }, []);
 
-    return { requestToken, disconnect, toggleMic, toggleCam, toggleScreen };
+    return { requestToken, disconnect, toggleMic, toggleCam, toggleScreen, refreshDevices, setMicDevice, setSpeakerDevice, setVolume };
 };
