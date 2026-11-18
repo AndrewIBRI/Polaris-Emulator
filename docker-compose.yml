@@ -73,7 +73,7 @@ services:
         condition: service_completed_successfully
     environment:
       APP_DOMAIN: ${APP_DOMAIN:-localhost}
-      APP_SCHEME: ${APP_SCHEME:-http}
+      APP_SCHEME: ${APP_SCHEME:-https}
       DB_HOST: db
       DB_PORT: "3306"
       DB_NAME: ${DB_NAME:-polaris}

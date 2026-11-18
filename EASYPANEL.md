@@ -28,13 +28,13 @@ EasyPanel → Projeto `server` → **+ Service → MariaDB**
 
 | Var | Valor |
 |---|---|
-| `APP_DOMAIN` | `server-escritorio-habbo.00behz.easypanel.host` |
-| `APP_SCHEME` | `https` |
-| `DB_HOST` | `escritorio-habbo-db` |
+| `APP_DOMAIN` | `$(PRIMARY_DOMAIN)` (template do EasyPanel — resolve pro domínio da aba Domains; nunca hardcode) |
+| `APP_SCHEME` | `https` (ou omitir — o compose já faz default `https`) |
+| `DB_HOST` | `db` (nome do serviço no compose) |
 | `DB_PORT` | `3306` |
 | `DB_NAME` | `polaris` |
 | `DB_USER` | `polaris` |
-| `DB_PASSWORD` | a mesma do serviço MariaDB |
+| `DB_PASSWORD` | a mesma do serviço MariaDB (ou omitir — fallback inline no compose) |
 | `JAVA_XMX` | `3072m` |
 
 > ⚠️ Não setar `DB_HOSTNAME` — o Polaris ignora o config.ini inteiro se essa env
