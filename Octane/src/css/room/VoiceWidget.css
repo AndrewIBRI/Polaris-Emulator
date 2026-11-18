@@ -1,4 +1,7 @@
 .octane-voice-widget {
+    /* o container dos widgets da sala é pointer-events:none; sem isto
+       os cliques atravessam o widget e caem no canvas da sala */
+    pointer-events: auto;
     position: absolute;
     bottom: 255px;
     left: 8px;
