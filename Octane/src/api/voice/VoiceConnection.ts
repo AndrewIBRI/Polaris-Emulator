@@ -36,6 +36,10 @@ class VoiceConnection
 
         const room = new Room({ dynacast: false, adaptiveStream: false });
 
+        // sem isto o singleton nunca tem a referência da sala e todo
+        // mic/câmera/tela cai no early-return silencioso de _localParticipant()
+        this._room = room;
+
         this._bind(room);
 
         store.setConnecting(true);
@@ -93,7 +97,12 @@ class VoiceConnection
     {
         const participant = this._localParticipant();
 
-        if(!participant) return false;
+        if(!participant)
+        {
+            console.warn('[Octane] [Voice] ignorado: sem sala LiveKit conectada (participant=null)');
+
+            return false;
+        }
 
         try
         {
@@ -120,7 +129,12 @@ class VoiceConnection
     {
         const participant = this._localParticipant();
 
-        if(!participant) return false;
+        if(!participant)
+        {
+            console.warn('[Octane] [Voice] ignorado: sem sala LiveKit conectada (participant=null)');
+
+            return false;
+        }
 
         try
         {
@@ -146,7 +160,12 @@ class VoiceConnection
     {
         const participant = this._localParticipant();
 
-        if(!participant) return false;
+        if(!participant)
+        {
+            console.warn('[Octane] [Voice] ignorado: sem sala LiveKit conectada (participant=null)');
+
+            return false;
+        }
 
         try
         {
