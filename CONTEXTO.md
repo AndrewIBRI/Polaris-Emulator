@@ -30,6 +30,11 @@ Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyP
 - Cliente: `livekit-client` no Octane; `api/voice/VoiceConnection.ts`, `hooks/voice/useVoice.ts`, `state/voiceStore.ts`, HUD `VoiceWidgetView` (mic/câmera/tela; botão direito no mic = mute-on-blur; badge "Modo assembleia"); compile ok + vite build ok
 - Fases futuras: zonas espaciais por tiles (editor), posição via metadados, sobrevivência a restart (assembleia é in-memory)
 
+## Banco / tradução (2026-11-18)
+- Tradução in-game vive nos arquivos do repo (`assets/gamedata/text_translate/ExternalTexts_br.json`, `furniture_translate/FurnitureData_br.json`) ✅
+- Tradução de catálogo + `emulator_texts` + salas + contas ficavam SÓ no DB da VPS → dumpado em `Database/pt-br/seed.sql` (commitado)
+- `db-init` no compose: importa `CleanDB.sql` + `seed.sql` no 1º boot se o banco estiver vazio (guard por contagem de tabelas); hotel depende dele
+
 ## Decisões
 - **Assets vendored no repo** (~3GB) em vez de download no boot — self-contained, sem dependência de repos externos que podem sumir
 - **Push em chunks < 2GB**: furniture em 2 partes, c_images, hof_furni, gamedata, client, docs
