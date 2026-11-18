@@ -791,4 +791,5 @@ export class IncomingHeader
     // Voice (LiveKit self-hosted, server -> client), custom ids.
     public static VOICE_TOKEN = 6101;
     public static VOICE_ROOM_STATE = 6104;
+    public static VOICE_ZONES = 6106;
 }

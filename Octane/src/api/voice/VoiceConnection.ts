@@ -253,22 +253,57 @@ class VoiceConnection
         store.setSpeakerDeviceId(deviceId);
     }
 
-    /** Applies the saved volume to every subscribed remote mic/screen-audio track. */
-    public setVolume(volume: number): void
-    {
-        const store = useVoiceStore.getState();
+    /** Per-participant spatial factor (audio zones); 1 = full volume. */
+    private _spatialFactors: Map<string, number> = new Map();
 
-        store.setVolume(volume);
+    /**
+     * Applies base volume × spatial factor to every subscribed remote
+     * mic/screen-audio track (optionally only one participant).
+     */
+    private _applyVolume(identity?: string): void
+    {
+        const base = useVoiceStore.getState().volume;
 
         for(const participant of Array.from(this._room?.remoteParticipants.values() ?? []))
         {
+            if(identity && participant.identity !== identity) continue;
+
+            const factor = this._spatialFactors.get(participant.identity) ?? 1;
+
             for(const source of [ Track.Source.Microphone, Track.Source.ScreenShareAudio ])
             {
                 const track = participant.getTrackPublication(source)?.track as RemoteAudioTrack | undefined;
 
-                if(track && typeof track.setVolume === 'function') track.setVolume(volume);
+                if(track && typeof track.setVolume === 'function') track.setVolume(base * factor);
             }
         }
+    }
+
+    /** Applies the saved volume to every subscribed remote mic/screen-audio track. */
+    public setVolume(volume: number): void
+    {
+        useVoiceStore.getState().setVolume(volume);
+
+        this._applyVolume();
+    }
+
+    /**
+     * Spatial audio (audio zones): 1.0 same zone, 0.1 other zone,
+     * 0.35 outside any zone. Applied per remote participant.
+     */
+    public setSpatialVolume(identity: string, factor: number): void
+    {
+        if(this._spatialFactors.get(identity) === factor) return;
+
+        this._spatialFactors.set(identity, factor);
+
+        this._applyVolume(identity);
+    }
+
+    /** Reapplies the spatial factor when a new remote track subscribes. */
+    public refreshSpatialVolume(identity: string): void
+    {
+        this._applyVolume(identity);
     }
 
     /** Registers/updates a video tile in the transmission window. */
@@ -354,13 +389,18 @@ class VoiceConnection
             useVoiceStore.getState().setScreenOn(false);
             useVoiceStore.getState().setRemoteCount(0);
             useVoiceStore.getState().clearVideos();
+            this._spatialFactors.clear();
         });
 
         for(const participant of Array.from(room.remoteParticipants.values()))
         {
             participant.on(ParticipantEvent.TrackSubscribed, (track: Track) =>
             {
-                if(track.source === Track.Source.Microphone) track.attach();
+                if(track.source === Track.Source.Microphone)
+                {
+                    track.attach();
+                    this.refreshSpatialVolume(participant.identity);
+                }
                 else if(track.source === Track.Source.Camera) this._upsertVideo(track, participant.identity, 'camera', false);
                 else if(track.source === Track.Source.ScreenShare) this._upsertVideo(track, participant.identity, 'screen', false);
             });

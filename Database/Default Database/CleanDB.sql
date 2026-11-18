@@ -55904,6 +55904,19 @@ CREATE TRIGGER `logs_economy_immutable_update`
 DELIMITER ;
 SET SQL_MODE=@OLDTMP_SQL_MODE;
 
+-- Voice audio zones (spatial voice, floor-plan editor; custom feature)
+CREATE TABLE IF NOT EXISTS `room_voice_zones` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `room_id` int(11) NOT NULL,
+  `name` varchar(64) NOT NULL DEFAULT 'Zona',
+  `x` int(11) NOT NULL DEFAULT 0,
+  `y` int(11) NOT NULL DEFAULT 0,
+  `width` int(11) NOT NULL DEFAULT 1,
+  `height` int(11) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  KEY `room_id` (`room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;
 /*!40014 SET FOREIGN_KEY_CHECKS=IFNULL(@OLD_FOREIGN_KEY_CHECKS, 1) */;

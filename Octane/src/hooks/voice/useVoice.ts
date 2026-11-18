@@ -3,7 +3,16 @@ import { SendMessageComposer } from '../../api';
 import { voiceConnection } from '../../api/voice/VoiceConnection';
 import { useVoiceStore } from '../../state/voiceStore';
 import { useMessageEvent } from '../events';
-import { GetVoiceTokenComposer, VoiceRoomStateEvent, VoiceTokenEvent } from '@octane/renderer';
+import {
+    GetVoiceTokenComposer,
+    GetVoiceZonesComposer,
+    SaveVoiceZonesComposer,
+    VoiceRoomStateEvent,
+    VoiceTokenEvent,
+    VoiceZonesEvent,
+    FloorHeightMapEvent,
+    IZone
+} from '@octane/renderer';
 
 /**
  * Wires the room voice system (docs/PLANO-VOZ-CAMERA.md): asks the emulator
@@ -17,6 +26,13 @@ export const useVoice = () =>
     const requestToken = useCallback(() =>
     {
         SendMessageComposer(new GetVoiceTokenComposer());
+        // zonas de áudio viajam junto: o cliente já entra com o mapa carregado
+        SendMessageComposer(new GetVoiceZonesComposer());
+    }, []);
+
+    const saveZones = useCallback((zones: IZone[]) =>
+    {
+        SendMessageComposer(new SaveVoiceZonesComposer(zones));
     }, []);
 
     const disconnect = useCallback(() =>
@@ -78,6 +94,20 @@ export const useVoice = () =>
         useVoiceStore.getState().setAssembly(event.getParser().assembly);
     });
 
+    useMessageEvent<VoiceZonesEvent>(VoiceZonesEvent, (event) =>
+    {
+        const parser = event.getParser();
+
+        useVoiceStore.getState().setCanEditZones(parser.canEdit);
+        useVoiceStore.getState().setZones(parser.zones);
+    });
+
+    // Captura o heightmap do piso para o grid do editor de zonas (admin).
+    useMessageEvent<FloorHeightMapEvent>(FloorHeightMapEvent, (event) =>
+    {
+        useVoiceStore.getState().setZoneTilemap(event.getParser().model);
+    });
+
     // Mute-on-blur: only when the user enabled it and nobody else is in the call.
     const wasMutedByBlur = useRef(false);
 
@@ -121,5 +151,5 @@ export const useVoice = () =>
         };
     }, []);
 
-    return { requestToken, disconnect, toggleMic, toggleCam, toggleScreen, refreshDevices, setMicDevice, setSpeakerDevice, setVolume };
+    return { requestToken, disconnect, toggleMic, toggleCam, toggleScreen, refreshDevices, setMicDevice, setSpeakerDevice, setVolume, saveZones };
 };

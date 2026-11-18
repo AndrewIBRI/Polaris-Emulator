@@ -1,6 +1,7 @@
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '../../../../layout';
 import { useVoice } from '../../../../hooks/voice/useVoice';
+import { useVoiceZonesSpatial } from '../../../../hooks/voice/useVoiceZonesSpatial';
 import { useVoiceStore } from '../../../../state/voiceStore';
 import '../../../../css/room/VoiceWidget.css';
 
@@ -14,8 +15,9 @@ import '../../../../css/room/VoiceWidget.css';
 export const VoiceWidgetView: FC<{}> = (props) =>
 {
     const { requestToken, disconnect, toggleMic, toggleCam, toggleScreen, refreshDevices, setMicDevice, setSpeakerDevice, setVolume } = useVoice();
+    useVoiceZonesSpatial();
 
-    const { connected, connecting, micOn, camOn, screenOn, assembly, remoteCount, autoMuteOnBlur, autoMuted, error, devices, micDeviceId, speakerDeviceId, volume, setAutoMuteOnBlur } = useVoiceStore();
+    const { connected, connecting, micOn, camOn, screenOn, assembly, remoteCount, autoMuteOnBlur, autoMuted, error, devices, micDeviceId, speakerDeviceId, volume, setAutoMuteOnBlur, canEditZones, setZoneEditorOpen } = useVoiceStore();
 
     const [ menuOpen, setMenuOpen ] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,13 @@ export const VoiceWidgetView: FC<{}> = (props) =>
                                 onChange={ () => setAutoMuteOnBlur(!autoMuteOnBlur) } />
                             <label htmlFor="octane-voice-automute">Mute automático ao perder o foco</label>
                         </div>
+                        { canEditZones &&
+                            <button
+                                type="button"
+                                className="octane-voice-widget__zones-button"
+                                onClick={ () => setZoneEditorOpen(true) }>
+                                Zonas de áudio…
+                            </button> }
                     </div> }
             </div>
             { assembly &&

@@ -918,4 +918,5 @@ public class Outgoing {
     // Voice (LiveKit self-hosted, docs/PLANO-VOZ-CAMERA.md): custom ids, free here.
     public static final int VoiceTokenComposer = 6101;
     public static final int VoiceRoomStateComposer = 6104;
+    public static final int VoiceZonesComposer = 6106;
 }

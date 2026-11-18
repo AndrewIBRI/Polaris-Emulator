@@ -40,6 +40,7 @@ import { WiredContractWidgetView } from './wired-contract/WiredContractWidgetVie
 import { WiredLinkWidgetView } from './wired-link/WiredLinkWidgetView';
 import { WordQuizWidgetView } from './word-quiz/WordQuizWidgetView';
 import { CameraWindowView, ScreenWindowView } from './voice/VideoWindowView';
+import { VoiceZoneEditorView } from './voice/VoiceZoneEditorView';
 import { VoiceWidgetView } from './voice/VoiceWidgetView';
 import { NativeTextTree } from '../../../common/native-text/NativeTextTree';
 
@@ -282,6 +283,7 @@ export const RoomWidgetsView: FC<{}> = (props) => {
                     <VoiceWidgetView />
                     <CameraWindowView />
                     <ScreenWindowView />
+                    <VoiceZoneEditorView />
                 </WidgetErrorBoundary>
                 <WidgetErrorBoundary name="RoomFilterWordsWidget">
                     <RoomFilterWordsWidgetView />

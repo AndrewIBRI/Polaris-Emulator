@@ -1,0 +1,212 @@
+/* Editor de zonas de áudio (admin) — layout estilo Floor Plan Editor */
+
+.voice-zone-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.voice-zone-editor {
+    background: var(--card, #1c1f26);
+    border: 1px solid var(--border, #333a45);
+    border-radius: 10px;
+    color: var(--foreground, #eee);
+    max-width: min(860px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.voice-zone-editor-header {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--border, #333a45);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.voice-zone-editor-title {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.voice-zone-editor-subtitle {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.voice-zone-editor-body {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    overflow: auto;
+}
+
+.voice-zone-editor-canvas {
+    flex: 1 1 auto;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    padding: 8px;
+    user-select: none;
+}
+
+.voice-zone-editor-canvas svg {
+    display: block;
+    cursor: crosshair;
+}
+
+.voice-zone-cell {
+    fill: rgba(255, 255, 255, 0.06);
+    stroke: rgba(255, 255, 255, 0.12);
+    stroke-width: 1;
+}
+
+.voice-zone-cell:hover:not(.is-blocked) {
+    fill: rgba(255, 255, 255, 0.14);
+}
+
+.voice-zone-cell.is-blocked {
+    fill: rgba(0, 0, 0, 0.45);
+    cursor: not-allowed;
+}
+
+.voice-zone-cell.is-zone {
+    opacity: 0.85;
+}
+
+.voice-zone-editor-canvas text {
+    fill: #111;
+    font-size: 10px;
+    font-weight: 700;
+    pointer-events: none;
+}
+
+.voice-zone-editor-canvas text.is-selected {
+    fill: #fff;
+}
+
+.voice-zone-editor-panel {
+    flex: 0 0 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.voice-zone-editor-hint {
+    font-size: 11px;
+    opacity: 0.75;
+    line-height: 1.4;
+}
+
+.voice-zone-editor-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow: auto;
+}
+
+.voice-zone-editor-list li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+.voice-zone-editor-list li.is-selected {
+    border-color: var(--accent, #4aa8ff);
+    background: rgba(74, 168, 255, 0.1);
+}
+
+.voice-zone-editor-swatch {
+    flex: 0 0 12px;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.voice-zone-editor-list input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border, #333a45);
+    border-radius: 4px;
+    color: inherit;
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.voice-zone-editor-size {
+    flex: 0 0 auto;
+    font-size: 10px;
+    opacity: 0.65;
+}
+
+.voice-zone-editor-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.voice-zone-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px 14px;
+    border-top: 1px solid var(--border, #333a45);
+}
+
+.voice-zone-editor-button {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border, #333a45);
+    border-radius: 6px;
+    color: inherit;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.voice-zone-editor-button:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.voice-zone-editor-button.is-primary {
+    background: #3ddc84;
+    border-color: transparent;
+    color: #082b17;
+    font-weight: 700;
+}
+
+.voice-zone-editor-button.is-danger {
+    background: rgba(255, 107, 107, 0.15);
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #ff9c9c;
+}
+
+/* Botão do menu do widget de voz */
+.octane-voice-widget__zones-button {
+    width: 100%;
+    text-align: left;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border, #333a45);
+    border-radius: 6px;
+    color: inherit;
+    padding: 5px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.octane-voice-widget__zones-button:hover {
+    background: rgba(255, 255, 255, 0.12);
+}

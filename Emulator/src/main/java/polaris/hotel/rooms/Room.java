@@ -2059,6 +2059,88 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
         this.sendComposer(new polaris.messages.outgoing.voice.VoiceRoomStateComposer(this.getId(), this.voiceAssembly).compose());
     }
 
+    // ---- Audio zones (spatial voice) ------------------------------------
+
+    /** Lazily loaded audio zones of this room (null until first requested). */
+    private List<polaris.hotel.voice.VoiceZone> voiceZones;
+
+    /**
+     * The room's audio zones, loaded from the database on first access.
+     * Never null after the first call.
+     */
+    public List<polaris.hotel.voice.VoiceZone> getVoiceZones() {
+        if (this.voiceZones == null) {
+            this.voiceZones = loadVoiceZones();
+        }
+
+        return this.voiceZones;
+    }
+
+    /** Only rank 7+ (staff/admin) may edit audio zones. */
+    public boolean canEditVoiceZones(polaris.hotel.users.User user) {
+        if (user == null || user.getUserInfo() == null || user.getUserInfo().getRank() == null) return false;
+
+        return user.getUserInfo().getRank().getId() >= 7;
+    }
+
+    /** Full replacement of the room's zones: persist + broadcast to the room. */
+    public void setVoiceZones(List<polaris.hotel.voice.VoiceZone> zones) {
+        this.voiceZones = zones == null ? List.of() : List.copyOf(zones);
+        this.saveVoiceZones();
+        this.sendComposer(new polaris.messages.outgoing.voice.VoiceZonesComposer(this.getId(), true, this.voiceZones).compose());
+    }
+
+    private List<polaris.hotel.voice.VoiceZone> loadVoiceZones() {
+        final List<polaris.hotel.voice.VoiceZone> zones = new ArrayList<>();
+        final String sql = "SELECT id, name, x, y, width, height FROM room_voice_zones WHERE room_id = ? ORDER BY id";
+
+        try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
+             java.sql.PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, this.getId());
+
+            try (ResultSet set = statement.executeQuery()) {
+                while (set.next()) {
+                    zones.add(new polaris.hotel.voice.VoiceZone(
+                            set.getInt("id"),
+                            set.getString("name"),
+                            set.getInt("x"),
+                            set.getInt("y"),
+                            set.getInt("width"),
+                            set.getInt("height")));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.error("Failed to load voice zones for room {}", this.getId(), e);
+        }
+
+        return zones;
+    }
+
+    private void saveVoiceZones() {
+        try (Connection connection = Emulator.getDatabase().getDataSource().getConnection()) {
+            connection.setAutoCommit(false);
+
+            try (java.sql.Statement statement = connection.createStatement()) {
+                statement.execute("DELETE FROM room_voice_zones WHERE room_id = " + this.getId());
+
+                for (polaris.hotel.voice.VoiceZone zone : this.voiceZones) {
+                    final String name = zone.name() == null ? "" : zone.name().replace("'", "''");
+
+                    statement.execute("INSERT INTO room_voice_zones (room_id, name, x, y, width, height) VALUES ("
+                            + this.getId() + ", '" + name + "', " + zone.x() + ", " + zone.y() + ", "
+                            + zone.width() + ", " + zone.height() + ")");
+                }
+
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            LOGGER.error("Failed to save voice zones for room {}", this.getId(), e);
+        }
+    }
+
     public boolean hasActiveWordQuiz() {
         return this.wordQuizManager.hasActiveWordQuiz();
     }

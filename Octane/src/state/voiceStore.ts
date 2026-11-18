@@ -1,5 +1,16 @@
 import { createOctaneStore } from './createOctaneStore';
 
+/** One audio zone rectangle (tile coords), edited by admins in-game. */
+export interface VoiceZoneArea
+{
+    id: number;
+    name: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 /** One video tile in the transmission window (local preview or remote stream). */
 export interface VoiceVideo
 {
@@ -52,6 +63,15 @@ interface VoiceState {
     cameraWindowVisible: boolean;
     /** Whether the screen-share transmission window is open. */
     screenWindowVisible: boolean;
+    /** Room audio zones (spatial voice) + whether this user may edit them. */
+    zones: VoiceZoneArea[];
+    canEditZones: boolean;
+    /** Whether the audio-zone editor (admin) is open. */
+    zoneEditorOpen: boolean;
+    /** LiveKit identities that already have a spatial factor applied. */
+    spatialApplied: Set<string>;
+    /** Raw floor heightmap of the current room (for the zone editor grid). */
+    zoneTilemap: string;
 
     setUrl: (url: string) => void;
     setToken: (token: string) => void;
@@ -75,6 +95,10 @@ interface VoiceState {
     clearVideos: () => void;
     setCameraWindowVisible: (visible: boolean) => void;
     setScreenWindowVisible: (visible: boolean) => void;
+    setZones: (zones: VoiceZoneArea[]) => void;
+    setCanEditZones: (canEdit: boolean) => void;
+    setZoneEditorOpen: (open: boolean) => void;
+    setZoneTilemap: (tilemap: string) => void;
 }
 
 const STORAGE_KEY = 'octane:voice:auto-mute-on-blur';
@@ -135,6 +159,11 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     videos: [],
     cameraWindowVisible: true,
     screenWindowVisible: true,
+    zones: [],
+    canEditZones: false,
+    zoneEditorOpen: false,
+    spatialApplied: new Set<string>(),
+    zoneTilemap: '',
 
     addVideo: (video) => set((state) =>
     {
@@ -151,6 +180,10 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     clearVideos: () => set({ videos: [] }),
     setCameraWindowVisible: (cameraWindowVisible) => set({ cameraWindowVisible }),
     setScreenWindowVisible: (screenWindowVisible) => set({ screenWindowVisible }),
+    setZones: (zones) => set({ zones }),
+    setCanEditZones: (canEditZones) => set({ canEditZones }),
+    setZoneEditorOpen: (zoneEditorOpen) => set({ zoneEditorOpen }),
+    setZoneTilemap: (zoneTilemap) => set({ zoneTilemap }),
 
     setError: (error) => set({ error }),
     setDevices: (devices) => set({ devices }),

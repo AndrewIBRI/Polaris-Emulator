@@ -110,6 +110,8 @@ import polaris.messages.incoming.collectibles.GetMintTokenOffersEvent;
 import polaris.messages.incoming.collectibles.GetMintTokensEvent;
 import polaris.messages.incoming.collectibles.GetMintableItemsEvent;
 import polaris.messages.incoming.voice.GetVoiceTokenEvent;
+import polaris.messages.incoming.voice.GetVoiceZonesEvent;
+import polaris.messages.incoming.voice.SaveVoiceZonesEvent;
 import polaris.messages.incoming.collectibles.GetMintingEnabledEvent;
 import polaris.messages.incoming.collectibles.GetSelectedNftWardrobeOutfitEvent;
 import polaris.messages.incoming.collectibles.GetUserNftWardrobeEvent;
@@ -909,6 +911,8 @@ public class PacketManager {
         this.registerHandler(Incoming.RedeemEmeraldFurniEvent, RedeemEmeraldFurniEvent.class);
         this.registerHandler(Incoming.GetUserNftWardrobeEvent, GetUserNftWardrobeEvent.class);
         this.registerHandler(Incoming.GetVoiceTokenEvent, GetVoiceTokenEvent.class);
+        this.registerHandler(Incoming.GetVoiceZonesEvent, GetVoiceZonesEvent.class);
+        this.registerHandler(Incoming.SaveVoiceZonesEvent, SaveVoiceZonesEvent.class);
         this.registerHandler(Incoming.SaveUserNftWardrobeEvent, SaveUserNftWardrobeEvent.class);
         this.registerHandler(Incoming.GetSelectedNftWardrobeOutfitEvent, GetSelectedNftWardrobeOutfitEvent.class);
         this.registerHandler(Incoming.GetMarketplaceConfigEvent, RequestMarketplaceConfigEvent.class);
