@@ -570,7 +570,7 @@
         "ytimg.com"
     ],
     "chat.emoji.enabled": true,
-    "habbicons.enabled": true,
+    "habbicons.enabled": false,
     "habbicons.asset.root": "/habbicons",
     "habbicons.asset.hash": "default",
     "youtube.publish.disabled": false,
