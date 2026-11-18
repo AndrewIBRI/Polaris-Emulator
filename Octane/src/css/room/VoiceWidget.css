@@ -40,6 +40,12 @@
         filter: grayscale(1) brightness(1.35) sepia(0.4) hue-rotate(-40deg);
     }
 
+    /* ícone de câmera 50% menor que os demais */
+    .icon-camera {
+        width: 10px;
+        height: 10px;
+    }
+
     /* ligado = verde inconfundível */
     &.is-active {
         opacity: 1;
@@ -171,17 +177,73 @@
     white-space: nowrap;
 }
 
-/* ---- Janela de transmissão (vídeo de câmera/tela, local + remoto) ---- */
-.octane-video-window {
-    width: 480px;
+/* ---- Janelas de vídeo: câmera (pop-up) e transmissão (tela) ---- */
+
+/* posições/tamanhos relativos à tela, não fixos */
+.octane-video-window--screen {
+    width: min(680px, 86vw);
+}
+
+.octane-video-window--camera {
+    width: min(230px, 55vw);
 }
 
 .octane-video-window__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
     gap: 6px;
     padding: 6px;
     background: #101014;
+    max-height: min(60vh, 420px);
+    overflow: auto;
+}
+
+.octane-video-window--camera .octane-video-window__grid {
+    grid-template-columns: 1fr;
+    max-height: min(40vh, 260px);
+    padding: 4px;
+}
+
+/* fullscreen da transmissão: stage ocupa a tela toda, grid em cima, PiP por cima */
+.octane-video-window__stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.octane-video-window__stage:fullscreen {
+    background: #000;
+}
+
+.octane-video-window__stage:fullscreen .octane-video-window__grid {
+    flex: 1;
+    max-height: none;
+    height: calc(100% - 40px);
+}
+
+/* picture-in-picture da câmera: canto inferior direito, por cima da tela */
+.octane-video-window__pip {
+    position: absolute;
+    right: 10px;
+    bottom: 50px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 5;
+}
+
+.octane-video-window__tile--pip {
+    width: min(180px, 18vw);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+:fullscreen .octane-video-window__controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
 .octane-video-window__tile {

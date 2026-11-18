@@ -48,8 +48,10 @@ interface VoiceState {
     volume: number;
     /** Video tiles currently published in the room (local + remote). */
     videos: VoiceVideo[];
-    /** Whether the transmission window is open. */
-    videoWindowVisible: boolean;
+    /** Whether the camera window (pop-up) is open. */
+    cameraWindowVisible: boolean;
+    /** Whether the screen-share transmission window is open. */
+    screenWindowVisible: boolean;
 
     setUrl: (url: string) => void;
     setToken: (token: string) => void;
@@ -67,11 +69,12 @@ interface VoiceState {
     setMicDeviceId: (micDeviceId: string) => void;
     setSpeakerDeviceId: (speakerDeviceId: string) => void;
     setVolume: (volume: number) => void;
-    /** Adds/updates a video tile; opening a new one re-opens the window. */
+    /** Adds/updates a video tile; auto-opens the matching window. */
     addVideo: (video: VoiceVideo) => void;
     removeVideo: (id: string) => void;
     clearVideos: () => void;
-    setVideoWindowVisible: (visible: boolean) => void;
+    setCameraWindowVisible: (visible: boolean) => void;
+    setScreenWindowVisible: (visible: boolean) => void;
 }
 
 const STORAGE_KEY = 'octane:voice:auto-mute-on-blur';
@@ -130,7 +133,8 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     speakerDeviceId: loadPref('speaker-device', ''),
     volume: parseFloat(loadPref('volume', '1')) || 1,
     videos: [],
-    videoWindowVisible: true,
+    cameraWindowVisible: true,
+    screenWindowVisible: true,
 
     addVideo: (video) => set((state) =>
     {
@@ -138,12 +142,15 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
 
         videos.push(video);
 
-        // a new stream arriving re-opens the transmission window
-        return { videos, videoWindowVisible: true };
+        // a new stream arriving opens its own window (camera pop-up vs transmission)
+        return video.source === 'camera'
+            ? { videos, cameraWindowVisible: true }
+            : { videos, screenWindowVisible: true };
     }),
     removeVideo: (id) => set((state) => ({ videos: state.videos.filter((video) => video.id !== id) })),
     clearVideos: () => set({ videos: [] }),
-    setVideoWindowVisible: (videoWindowVisible) => set({ videoWindowVisible }),
+    setCameraWindowVisible: (cameraWindowVisible) => set({ cameraWindowVisible }),
+    setScreenWindowVisible: (screenWindowVisible) => set({ screenWindowVisible }),
 
     setError: (error) => set({ error }),
     setDevices: (devices) => set({ devices }),
