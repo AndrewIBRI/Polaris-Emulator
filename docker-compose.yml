@@ -31,6 +31,25 @@ services:
       timeout: 5s
       retries: 12
 
+  # Um-shot: importa o schema+dados (CleanDB) e o seed pt-BR (traduções,
+  # catálogo, salas, contas) no primeiro boot, só se o banco estiver vazio.
+  db-init:
+    image: mariadb:11.4
+    restart: "no"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-polaris-root-2026}
+      DB_NAME: ${DB_NAME:-polaris}
+    volumes:
+      - ./Database:/seed:ro
+    command:
+      - |
+        until mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; do sleep 3; done
+        N=$$(mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$DB_NAME'")
+        if [ "$$N" -gt 0 ]; then echo "[db-init] banco já tem $$N tabelas — pulando import"; exit 0; fi
+        mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" < /seed/"Default Database"/CleanDB.sql
+        mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" < /seed/pt-br/seed.sql
+        echo "[db-init] schema + seed pt-BR importados"
+
   livekit:
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
@@ -49,6 +68,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       APP_DOMAIN: ${APP_DOMAIN:-localhost}
       APP_SCHEME: ${APP_SCHEME:-http}
