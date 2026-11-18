@@ -1,0 +1,9 @@
+# Voz do hotel (LiveKit self-hosted, docs/PLANO-VOZ-CAMERA.md).
+# A chave/secret vai por env (LIVEKIT_KEYS) — gerada no primeiro boot e
+# persistida em /data/secrets/livekit-api-secret.
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true

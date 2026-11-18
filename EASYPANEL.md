@@ -58,16 +58,20 @@ EasyPanel → Projeto `server` → **+ Service → MariaDB**
 3. O emulador cria o schema no banco automaticamente no 1º boot (222 migrations Flyway).
 4. Abrir o domínio do painel → tela de login do Octane → criar conta em `/api/auth/register`.
 
-## 5. Deploy local / teste
+## 5. Deploy local / um clique (compose canônico)
+
+O `docker-compose.yml` na raiz é o stack completo (hotel + MariaDB + LiveKit de voz):
 
 ```bash
-docker build -t polaris-hotel .
-docker run -d --name polaris-db -e MARIADB_ROOT_PASSWORD=... mariadb:11
-docker run -d --name polaris-hotel -p 8080:8080 \
-  -e APP_DOMAIN=localhost -e APP_SCHEME=http \
-  -e DB_HOST=polaris-db -e DB_PASSWORD=... \
-  --link polaris-db polaris-hotel
+cp .env.example .env   # preencher DB_* e APP_DOMAIN
+docker compose up -d --build
 ```
+
+No EasyPanel basta criar **um** serviço: Projeto → + Service → **Compose**,
+Source GitHub `AndrewIBRI/Polaris-Emulator` — o compose sobe os 3 serviços e o
+primeiro boot gera e persiste a secret do LiveKit em `/data/secrets/livekit-api-secret`
+(no volume `/data` compartilhado entre hotel e voz). Portas extras do LiveKit:
+TCP `7881` e UDP `50000-50100`.
 
 ## 6. Modificar o código
 

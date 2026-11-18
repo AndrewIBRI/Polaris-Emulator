@@ -1,12 +1,16 @@
-# Standalone test stack (EasyPanel builds the app service from the Dockerfile and
-# creates the MariaDB service in the panel — this file is for local testing).
+# Stack canônico do Polaris Hotel — sobe TUDO com um comando (hotel + banco + voz).
 #
-#   cp .env.example .env   # fill in the values
+#   cp .env.example .env   # preencha os valores
 #   docker compose up -d --build
+#
+# No EasyPanel: Projeto → + Service → Compose → apontando para este repo/branch.
+# O compose cria os 3 serviços e o primeiro boot gera todas as secrets sozinho
+# (secret do LiveKit fica em /data/secrets/livekit-api-secret, no volume).
 
 services:
   db:
     image: mariadb:11.4
+    restart: unless-stopped
     environment:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set in .env}
       MARIADB_DATABASE: ${DB_NAME:-polaris}
@@ -15,13 +19,26 @@ services:
     volumes:
       - db-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
       interval: 10s
       timeout: 5s
       retries: 12
 
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    # Espera a secret gerada pelo primeiro boot do hotel e sobe com ela.
+    entrypoint: [ "/bin/sh", "-c", "until [ -s /data/secrets/livekit-api-secret ]; do sleep 2; done; LIVEKIT_KEYS=\"${LIVEKIT_API_KEY:-polaris}: $$(cat /data/secrets/livekit-api-secret)\" exec /livekit-server --config=/etc/livekit/livekit.yaml" ]
+    volumes:
+      - hotel-data:/data
+      - ./docker/livekit.yaml:/etc/livekit/livekit.yaml:ro
+    ports:
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
+
   hotel:
     build: .
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
