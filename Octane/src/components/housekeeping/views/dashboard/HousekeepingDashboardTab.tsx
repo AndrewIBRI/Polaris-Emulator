@@ -99,7 +99,7 @@ export const HousekeepingDashboardTab: FC = () => {
 
     const ageMs = refreshedAt ? now - refreshedAt : null;
     const isStale = ageMs !== null && ageMs > STALE_AFTER_MS;
-    const ageLabel = ageMs === null ? '-' : ageMs < 5_000 ? 'now' : `${Math.floor(ageMs / 1000)}s ago`;
+    const ageLabel = ageMs === null ? '-' : ageMs < 5_000 ? 'agora' : `${Math.floor(ageMs / 1000)}s atrás`;
 
     const recentSanctions = useMemo(() => actionLog.filter((entry) => entry && entry.success && entry.targetType === 'user').slice(0, 5), [actionLog]);
 
@@ -150,7 +150,7 @@ export const HousekeepingDashboardTab: FC = () => {
                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${isStale ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}
                         >
                             <FaCircle size={6} className={isStale ? '' : 'animate-pulse'} />
-                            {isStale ? `stale · ${ageLabel}` : `live · ${ageLabel}`}
+                            {isStale ? `Desatualizado · ${ageLabel}` : `Ao vivo · ${ageLabel}`}
                         </span>
                         <HousekeepingButton size="sm" variant="secondary" disabled={isDashboardLoading} onClick={() => refreshDashboard()}>
                             <FaSync size={9} className={isDashboardLoading ? 'animate-spin' : ''} />

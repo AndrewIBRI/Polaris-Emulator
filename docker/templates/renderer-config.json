@@ -18,10 +18,10 @@
     "// ---- Game data and language ----": "",
     "base.locale": "en",
     "external.texts.url": [
-        "${gamedata.url}/ExternalTexts.json",
-        "${gamedata.url}/UITexts.json"
+        "${gamedata.url}/ExternalTexts.json?t=%timestamp%",
+        "${gamedata.url}/UITexts.json?t=%timestamp%"
     ],
-    "external.texts.translation.url": "${gamedata.url}/text_translate/ExternalTexts_%locale%.json",
+    "external.texts.translation.url": "${gamedata.url}/text_translate/ExternalTexts_%locale%.json?t=%timestamp%",
     "external.samples.url": "${hof.furni.url}/mp3/sound_machine_sample_%sample%.mp3",
     "furnidata.url": "${gamedata.url}/FurnitureData.json?t=%timestamp%",
     "furnidata.translation.url": "",
