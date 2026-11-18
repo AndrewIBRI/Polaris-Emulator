@@ -853,3 +853,21 @@
     width: 34px;
     height: 36px;
 }
+
+.octane-icon.icon-mic {
+    background-image: url("@/assets/images/toolbar/air/mic.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    width: 24px;
+    height: 24px;
+}
+
+.octane-icon.icon-screenshare {
+    background-image: url("@/assets/images/toolbar/air/screenshare.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    width: 24px;
+    height: 24px;
+}
