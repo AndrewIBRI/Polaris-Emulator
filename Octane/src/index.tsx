@@ -140,6 +140,23 @@ import './css/common/ClassicScrollbar.css';
 
 document.documentElement.classList.add('has-classic-scrollbar');
 
+// Report fatal client errors to nginx via a beacon GET so they show up in docker
+// logs (the emulator server has no access to the browser console).
+const reportClientError = (message: string): void =>
+{
+    try
+    {
+        new Image().src = '/__clienterr?m=' + encodeURIComponent(message.slice(0, 400));
+    }
+    catch
+    {
+        // ignore
+    }
+};
+
+window.addEventListener('error', (event) => reportClientError(`ERR ${event.message} @ ${event.filename}:${event.lineno}:${event.colno}`));
+window.addEventListener('unhandledrejection', (event) => reportClientError(`REJ ${String((event as PromiseRejectionEvent).reason)}`));
+
 // Mounted by bootstrap once the configuration is in; importing this module only loads the UI.
 export const mountApp = (): void => {
     createRoot(document.getElementById('root')).render(
