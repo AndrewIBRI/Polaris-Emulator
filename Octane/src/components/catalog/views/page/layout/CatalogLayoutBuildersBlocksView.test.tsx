@@ -57,7 +57,7 @@ const makePage = (families = 20, colorsPerFamily = 19) =>
         }
     }
 
-    return { offers, text: 'x', textDetails: 'y', textTeaser: 'z', icon: 'i' };
+    return ({ offers, text: 'x', textDetails: 'y', textTeaser: 'z', icon: 'i' }) as any;
 };
 
 describe('CatalogLayoutBuildersBlocksView (page 117 - Blocos do Alfabeto)', () =>
@@ -69,7 +69,7 @@ describe('CatalogLayoutBuildersBlocksView (page 117 - Blocos do Alfabeto)', () =
         state.page = makePage();
 
         const start = Date.now();
-        const { container } = render(<CatalogLayoutBuildersBlocksView page={state.page} />);
+        const { container } = render(<CatalogLayoutBuildersBlocksView {...({ page: state.page, hideNavigation: false } as any)} />);
 
         expect(container).not.toBeNull();
         // renders all families

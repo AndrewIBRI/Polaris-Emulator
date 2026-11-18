@@ -33,27 +33,24 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
     const { isVisible: inventoryVisible = false } = useInventoryFurni();
     const [colorsShowing, setColorsShowing] = useState<boolean>(false);
 
+    // furnitureData can be null (item missing from furnidata) - reading colorIndex
+    // on it crashed the catalog (page 117, Blocos do Alfabeto).
+    const colorIndexOf = (offer: IPurchasableOffer) => offer?.product?.furnitureData?.colorIndex ?? -1;
+
     const sortByColorIndex = (a: IPurchasableOffer, b: IPurchasableOffer) => {
-        if (!a.product.furnitureData.colorIndex || !b.product.furnitureData.colorIndex) {
-            return 1;
-        }
-        if (a.product.furnitureData.colorIndex > b.product.furnitureData.colorIndex) {
-            return 1;
-        }
-        if (a == b) {
+        if (a === b) {
             return 0;
         }
-        return -1;
+        return colorIndexOf(a) - colorIndexOf(b);
     };
 
+    const classNameOf = (offer: IPurchasableOffer) => offer?.product?.furnitureData?.className ?? '';
+
     const sortyByFurnitureClassName = (a: IPurchasableOffer, b: IPurchasableOffer) => {
-        if (a.product.furnitureData.className > b.product.furnitureData.className) {
-            return 1;
-        }
-        if (a == b) {
+        if (a === b) {
             return 0;
         }
-        return -1;
+        return classNameOf(a).localeCompare(classNameOf(b));
     };
 
     const selectOffer = (offer: IPurchasableOffer) => {
@@ -125,15 +122,15 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
                    and the shell scrolls when there are more than two rows
                    worth of offers. */}
                 <div className="octane-catalog-color-grid-shell shrink-0">
-                    {(!colorsShowing || !currentOffer || !colorableItems.has(currentOffer.product.furnitureData.className)) && (
+                    {(!colorsShowing || !currentOffer || !colorableItems.has(currentOffer.product?.furnitureData?.className)) && (
                         <AutoGrid columnCount={7} columnMinHeight={70} columnMinWidth={45}>
                             {offers.map((offer, index) => (
                                 <CatalogGridOfferView
                                     key={index}
                                     itemActive={
                                         currentOffer &&
-                                        (currentOffer.product.furnitureData.hasIndexedColor
-                                            ? currentOffer.product.furnitureData.className === offer.product.furnitureData.className
+                                        (currentOffer.product?.furnitureData?.hasIndexedColor
+                                            ? classNameOf(currentOffer) === classNameOf(offer)
                                             : currentOffer.offerId === offer.offerId)
                                     }
                                     offer={offer}
@@ -143,19 +140,19 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
                             ))}
                         </AutoGrid>
                     )}
-                    {colorsShowing && currentOffer && colorableItems.has(currentOffer.product.furnitureData.className) && (
+                    {colorsShowing && currentOffer && colorableItems.has(currentOffer.product?.furnitureData?.className) && (
                         <div className="octane-catalog-color-swatches flex flex-wrap gap-1 p-2 overflow-auto">
-                            {colorableItems.get(currentOffer.product.furnitureData.className).map((color, index) => (
+                            {colorableItems.get(currentOffer.product?.furnitureData?.className).map((color, index) => (
                                 <LayoutGridItem
                                     key={index}
                                     aria-label={ColorConverter.int2rgb(color)}
-                                    aria-pressed={currentOffer.product.furnitureData.colorIndex === index}
+                                    aria-pressed={currentOffer.product?.furnitureData?.colorIndex === index}
                                     itemHighlight
                                     className="clear-bg"
                                     component={BaseButton}
-                                    itemActive={currentOffer.product.furnitureData.colorIndex === index}
+                                    itemActive={currentOffer.product?.furnitureData?.colorIndex === index}
                                     itemColor={ColorConverter.int2rgb(color)}
-                                    onClick={(event) => selectColor(index, currentOffer.product.furnitureData.className)}
+                                    onClick={(event) => selectColor(index, currentOffer.product?.furnitureData?.className)}
                                 />
                             ))}
                         </div>
