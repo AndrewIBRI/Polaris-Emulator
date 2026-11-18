@@ -2064,6 +2064,12 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     /** Lazily loaded audio zones of this room (null until first requested). */
     private List<polaris.hotel.voice.VoiceZone> voiceZones;
 
+    /** Spatial volume factors (percent) — defaults are the classic values. */
+    private int voiceSameFactor = 100;
+    private int voiceOtherFactor = 10;
+    private int voiceOutsideFactor = 35;
+    private boolean voiceSettingsLoaded = false;
+
     /**
      * The room's audio zones, loaded from the database on first access.
      * Never null after the first call.
@@ -2074,6 +2080,78 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
         }
 
         return this.voiceZones;
+    }
+
+    /** Volume (0-100) heard from a user inside the same audio zone. */
+    public int getVoiceSameFactor() {
+        this.ensureVoiceSettingsLoaded();
+        return this.voiceSameFactor;
+    }
+
+    /** Volume (0-100) heard from a user inside another audio zone. */
+    public int getVoiceOtherFactor() {
+        this.ensureVoiceSettingsLoaded();
+        return this.voiceOtherFactor;
+    }
+
+    /** Volume (0-100) heard from a user outside any audio zone. */
+    public int getVoiceOutsideFactor() {
+        this.ensureVoiceSettingsLoaded();
+        return this.voiceOutsideFactor;
+    }
+
+    /** Replaces the spatial volume factors (percent, clamped 0-100). */
+    public void setVoiceFactors(int same, int other, int outside) {
+        this.voiceSameFactor = clampPercent(same);
+        this.voiceOtherFactor = clampPercent(other);
+        this.voiceOutsideFactor = clampPercent(outside);
+        this.saveVoiceFactors();
+    }
+
+    private static int clampPercent(int value) {
+        if (value < 0) return 0;
+        if (value > 100) return 100;
+
+        return value;
+    }
+
+    private void ensureVoiceSettingsLoaded() {
+        if (this.voiceSettingsLoaded) return;
+
+        this.voiceSettingsLoaded = true;
+
+        final String sql = "SELECT same_factor, other_factor, outside_factor FROM room_voice_zone_settings WHERE room_id = ?";
+
+        try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
+             java.sql.PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, this.getId());
+
+            try (ResultSet set = statement.executeQuery()) {
+                if (set.next()) {
+                    this.voiceSameFactor = set.getInt("same_factor");
+                    this.voiceOtherFactor = set.getInt("other_factor");
+                    this.voiceOutsideFactor = set.getInt("outside_factor");
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.error("Failed to load voice zone settings for room {}", this.getId(), e);
+        }
+    }
+
+    private void saveVoiceFactors() {
+        final String sql = "INSERT INTO room_voice_zone_settings (room_id, same_factor, other_factor, outside_factor) VALUES (?, ?, ?, ?) "
+                + "ON DUPLICATE KEY UPDATE same_factor = VALUES(same_factor), other_factor = VALUES(other_factor), outside_factor = VALUES(outside_factor)";
+
+        try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
+             java.sql.PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, this.getId());
+            statement.setInt(2, this.voiceSameFactor);
+            statement.setInt(3, this.voiceOtherFactor);
+            statement.setInt(4, this.voiceOutsideFactor);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            LOGGER.error("Failed to save voice zone settings for room {}", this.getId(), e);
+        }
     }
 
     /** Only rank 7+ (staff/admin) may edit audio zones. */
@@ -2087,7 +2165,9 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     public void setVoiceZones(List<polaris.hotel.voice.VoiceZone> zones) {
         this.voiceZones = zones == null ? List.of() : List.copyOf(zones);
         this.saveVoiceZones();
-        this.sendComposer(new polaris.messages.outgoing.voice.VoiceZonesComposer(this.getId(), true, this.voiceZones).compose());
+        this.sendComposer(new polaris.messages.outgoing.voice.VoiceZonesComposer(this.getId(), true,
+                this.getVoiceSameFactor(), this.getVoiceOtherFactor(), this.getVoiceOutsideFactor(),
+                this.voiceZones).compose());
     }
 
     private List<polaris.hotel.voice.VoiceZone> loadVoiceZones() {

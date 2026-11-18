@@ -68,6 +68,8 @@ interface VoiceState {
     canEditZones: boolean;
     /** Whether the audio-zone editor (admin) is open. */
     zoneEditorOpen: boolean;
+    /** Per-room spatial volume factors (percent, server-configured). */
+    zoneFactors: { same: number; other: number; outside: number };
     /** LiveKit identities that already have a spatial factor applied. */
     spatialApplied: Set<string>;
     /** Raw floor heightmap of the current room (for the zone editor grid). */
@@ -98,6 +100,7 @@ interface VoiceState {
     setZones: (zones: VoiceZoneArea[]) => void;
     setCanEditZones: (canEdit: boolean) => void;
     setZoneEditorOpen: (open: boolean) => void;
+    setZoneFactors: (factors: { same: number; other: number; outside: number }) => void;
     setZoneTilemap: (tilemap: string) => void;
 }
 
@@ -162,6 +165,7 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     zones: [],
     canEditZones: false,
     zoneEditorOpen: false,
+    zoneFactors: { same: 100, other: 10, outside: 35 },
     spatialApplied: new Set<string>(),
     zoneTilemap: '',
 
@@ -183,6 +187,7 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     setZones: (zones) => set({ zones }),
     setCanEditZones: (canEditZones) => set({ canEditZones }),
     setZoneEditorOpen: (zoneEditorOpen) => set({ zoneEditorOpen }),
+    setZoneFactors: (zoneFactors) => set({ zoneFactors }),
     setZoneTilemap: (zoneTilemap) => set({ zoneTilemap }),
 
     setError: (error) => set({ error }),

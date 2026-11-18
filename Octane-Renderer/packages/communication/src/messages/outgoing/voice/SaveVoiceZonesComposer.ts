@@ -5,9 +5,9 @@ export class SaveVoiceZonesComposer implements IMessageComposer<(string | number
 {
     private _data: (string | number)[];
 
-    constructor(zones: { name: string; x: number; y: number; width: number; height: number }[])
+    constructor(factors: { same: number; other: number; outside: number }, zones: { name: string; x: number; y: number; width: number; height: number }[])
     {
-        this._data = [ zones.length ];
+        this._data = [ factors.same, factors.other, factors.outside, zones.length ];
 
         for(const zone of zones)
         {

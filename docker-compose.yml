@@ -46,7 +46,11 @@ services:
       - |
         until mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; do sleep 3; done
         N=$$(mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$$DB_NAME'")
-        if [ "$$N" -gt 0 ]; then echo "[db-init] banco já tem $$N tabelas — pulando import"; exit 0; fi
+        if [ "$$N" -gt 0 ]; then
+          echo "[db-init] banco já tem $$N tabelas — aplicando migrations incrementais"
+          mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" < /seed/migrations.sql
+          exit 0
+        fi
         mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" < /seed/"Default Database"/CleanDB.sql
         mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" "$$DB_NAME" < /seed/pt-br/seed.sql
         echo "[db-init] schema + seed pt-BR importados"

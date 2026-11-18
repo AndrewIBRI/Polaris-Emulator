@@ -27,6 +27,15 @@ public class SaveVoiceZonesEvent extends MessageHandler {
 
         if (!room.canEditVoiceZones(this.client.getUser())) return;
 
+        // Spatial volume factors (percent), then the zones themselves.
+        final Integer sameFactor = this.packet.readInt();
+        final Integer otherFactor = this.packet.readInt();
+        final Integer outsideFactor = this.packet.readInt();
+
+        if (sameFactor == null || otherFactor == null || outsideFactor == null) return;
+
+        room.setVoiceFactors(sameFactor, otherFactor, outsideFactor);
+
         final Integer count = this.packet.readInt();
 
         if (count == null || count < 0 || count > MAX_ZONES) return;

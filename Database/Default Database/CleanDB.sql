@@ -55905,6 +55905,15 @@ DELIMITER ;
 SET SQL_MODE=@OLDTMP_SQL_MODE;
 
 -- Voice audio zones (spatial voice, floor-plan editor; custom feature)
+-- Per-room volume factors (percent): same zone / other zone / outside zones.
+CREATE TABLE IF NOT EXISTS `room_voice_zone_settings` (
+  `room_id` int(11) NOT NULL,
+  `same_factor` int(11) NOT NULL DEFAULT 100,
+  `other_factor` int(11) NOT NULL DEFAULT 10,
+  `outside_factor` int(11) NOT NULL DEFAULT 35,
+  PRIMARY KEY (`room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+
 CREATE TABLE IF NOT EXISTS `room_voice_zones` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `room_id` int(11) NOT NULL,

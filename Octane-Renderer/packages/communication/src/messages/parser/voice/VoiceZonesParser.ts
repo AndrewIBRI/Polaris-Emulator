@@ -15,12 +15,18 @@ export class VoiceZonesParser implements IMessageParser
 {
     private _roomId: number = 0;
     private _canEdit: boolean = false;
+    private _sameFactor: number = 100;
+    private _otherFactor: number = 10;
+    private _outsideFactor: number = 35;
     private _zones: IZone[] = [];
 
     public flush(): boolean
     {
         this._roomId = 0;
         this._canEdit = false;
+        this._sameFactor = 100;
+        this._otherFactor = 10;
+        this._outsideFactor = 35;
         this._zones = [];
 
         return true;
@@ -32,6 +38,9 @@ export class VoiceZonesParser implements IMessageParser
 
         this._roomId = wrapper.readInt();
         this._canEdit = wrapper.readBoolean();
+        this._sameFactor = wrapper.readInt();
+        this._otherFactor = wrapper.readInt();
+        this._outsideFactor = wrapper.readInt();
 
         const count = wrapper.readInt();
 
@@ -58,6 +67,21 @@ export class VoiceZonesParser implements IMessageParser
     public get canEdit(): boolean
     {
         return this._canEdit;
+    }
+
+    public get sameFactor(): number
+    {
+        return this._sameFactor;
+    }
+
+    public get otherFactor(): number
+    {
+        return this._otherFactor;
+    }
+
+    public get outsideFactor(): number
+    {
+        return this._outsideFactor;
     }
 
     public get zones(): IZone[]

@@ -6,10 +6,10 @@ import { useVoiceStore, VoiceZoneArea } from '../../state/voiceStore';
 
 const SPATIAL_TICK_MS = 500;
 
-/** Volume levels: same zone = full, other zone = bleed, outside = muffled. */
-const FACTOR_SAME = 1;
-const FACTOR_OTHER = 0.1;
-const FACTOR_OUTSIDE = 0.35;
+/** Default volume levels: same zone = full, other zone = bleed, outside = muffled. */
+const DEFAULT_SAME = 100;
+const DEFAULT_OTHER = 10;
+const DEFAULT_OUTSIDE = 35;
 const FACTOR_FULL = 1;
 
 interface UserTile
@@ -73,6 +73,7 @@ const applySpatial = () =>
     };
 
     const myZone = zoneOf(state.zones, me.x, me.y);
+    const factors = state.zoneFactors ?? { same: DEFAULT_SAME, other: DEFAULT_OTHER, outside: DEFAULT_OUTSIDE };
     const applied = new Set<string>();
 
     for(const user of users)
@@ -84,13 +85,13 @@ const applySpatial = () =>
 
         if(myZone === -1)
         {
-            voiceConnection.setSpatialVolume(identity, FACTOR_OUTSIDE);
+            voiceConnection.setSpatialVolume(identity, factors.outside / 100);
         }
         else
         {
             const zone = zoneOf(state.zones, user.x, user.y);
 
-            voiceConnection.setSpatialVolume(identity, zone === myZone ? FACTOR_SAME : FACTOR_OTHER);
+            voiceConnection.setSpatialVolume(identity, zone === myZone ? factors.same / 100 : factors.other / 100);
         }
 
         applied.add(identity);

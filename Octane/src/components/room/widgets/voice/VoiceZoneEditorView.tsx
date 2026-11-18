@@ -46,6 +46,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const zones = useVoiceStore((state) => state.zones);
     const zoneEditorOpen = useVoiceStore((state) => state.zoneEditorOpen);
     const tilemap = useVoiceStore((state) => state.zoneTilemap);
+    const zoneFactors = useVoiceStore((state) => state.zoneFactors);
     const setZoneEditorOpen = useVoiceStore((state) => state.setZoneEditorOpen);
     const { saveZones } = useVoice();
 
@@ -53,6 +54,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const [ draft, setDraft ] = useState<VoiceZoneArea[]>([]);
     const [ selected, setSelected ] = useState<number>(-1);
+    const [ factors, setFactors ] = useState({ same: 100, other: 10, outside: 35 });
     const drawingRef = useRef<{ startX: number; startY: number; index: number } | null>(null);
 
     // Grid size: from the floor model; fallback when no heightmap was cached.
@@ -71,8 +73,9 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const resetDraft = useCallback(() =>
     {
         setDraft(zones.map((zone) => ({ ...zone })));
+        setFactors({ ...zoneFactors });
         setSelected(-1);
-    }, [ zones ]);
+    }, [ zones, zoneFactors ]);
 
     // Recarrega o rascunho cada vez que o editor abre.
     useEffect(() =>
@@ -164,7 +167,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const save = () =>
     {
-        saveZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })));
+        saveZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors);
         setZoneEditorOpen(false);
     };
 
@@ -250,6 +253,27 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                 <button className="voice-zone-editor-button is-danger" onClick={ deleteSelected }>Apagar zona</button>
                             </div>
                         ) }
+                        <div className="voice-zone-editor-factors">
+                            <span className="voice-zone-editor-factors-title">Volumes (por sala)</span>
+                            <label>
+                                Na mesma zona
+                                <input type="range" min={ 0 } max={ 100 } value={ factors.same }
+                                    onChange={ (event) => setFactors((current) => ({ ...current, same: Number(event.currentTarget.value) })) } />
+                                <b>{ factors.same }%</b>
+                            </label>
+                            <label>
+                                Em outra zona
+                                <input type="range" min={ 0 } max={ 100 } value={ factors.other }
+                                    onChange={ (event) => setFactors((current) => ({ ...current, other: Number(event.currentTarget.value) })) } />
+                                <b>{ factors.other }%</b>
+                            </label>
+                            <label>
+                                Fora de zona
+                                <input type="range" min={ 0 } max={ 100 } value={ factors.outside }
+                                    onChange={ (event) => setFactors((current) => ({ ...current, outside: Number(event.currentTarget.value) })) } />
+                                <b>{ factors.outside }%</b>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <div className="voice-zone-editor-footer">
