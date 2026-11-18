@@ -28,7 +28,12 @@ export const useVoice = () =>
     {
         const { micOn, connected } = useVoiceStore.getState();
 
-        if(!connected) return;
+        if(!connected)
+        {
+            console.warn('[Octane] [Voice] toggleMic ignorado: voz NÃO está conectada');
+
+            return;
+        }
 
         voiceConnection.setMicEnabled(!micOn);
     }, []);

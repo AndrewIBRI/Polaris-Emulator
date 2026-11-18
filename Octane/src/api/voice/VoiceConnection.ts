@@ -44,6 +44,8 @@ class VoiceConnection
         {
             await room.connect(url, token);
 
+            console.log('[Octane] [Voice] CONECTADO ao LiveKit', room.name);
+
             useVoiceStore.getState().setConnected(true);
             useVoiceStore.getState().setConnecting(false);
             useVoiceStore.getState().setError('');
@@ -55,6 +57,9 @@ class VoiceConnection
         }
         catch (error)
         {
+            console.error('[Octane] [Voice] FALHA ao conectar ao LiveKit:', error);
+            console.error('[Octane] [Voice] url tentada:', url, '| token (20 chars):', token?.slice(0, 20));
+
             useVoiceStore.getState().setConnecting(false);
             useVoiceStore.getState().setConnected(false);
 
@@ -92,10 +97,14 @@ class VoiceConnection
 
         try
         {
+            console.log('[Octane] [Voice] setMicrophoneEnabled(' + enabled + ') — pedindo permissão ao navegador…');
             await participant.setMicrophoneEnabled(enabled);
+            console.log('[Octane] [Voice] mic ' + (enabled ? 'LIGADO' : 'DESLIGADO'), participant.getTrackPublication(Track.Source.Microphone)?.track);
         }
         catch (error)
         {
+            console.error('[Octane] [Voice] ERRO no microfone:', error);
+
             useVoiceStore.getState().setError(describeMediaError(error));
 
             return false;
@@ -115,10 +124,14 @@ class VoiceConnection
 
         try
         {
+            console.log('[Octane] [Voice] setCameraEnabled(' + enabled + ') — pedindo permissão ao navegador…');
             await participant.setCameraEnabled(enabled);
+            console.log('[Octane] [Voice] câmera ' + (enabled ? 'LIGADA' : 'DESLIGADA'));
         }
         catch (error)
         {
+            console.error('[Octane] [Voice] ERRO na câmera:', error);
+
             useVoiceStore.getState().setError(describeMediaError(error));
 
             return false;
@@ -137,10 +150,14 @@ class VoiceConnection
 
         try
         {
+            console.log('[Octane] [Voice] setScreenShareEnabled(' + enabled + ') — abrindo seletor do navegador…');
             await participant.setScreenShareEnabled(enabled, { audio: true });
+            console.log('[Octane] [Voice] tela ' + (enabled ? 'COMPARTILHADA' : 'PARADA'));
         }
         catch (error)
         {
+            console.error('[Octane] [Voice] ERRO no compartilhamento de tela:', error);
+
             useVoiceStore.getState().setError(describeMediaError(error));
             useVoiceStore.getState().setScreenOn(!enabled); // revert (e.g. picker cancelled)
 
@@ -237,6 +254,8 @@ class VoiceConnection
 
         room.on(RoomEvent.TrackSubscribed, (track: Track) =>
         {
+            console.log('[Octane] [Voice] track remoto recebido:', track.source, track.kind);
+
             if(track.source === Track.Source.Microphone)
             {
                 track.attach(); // creates + plays an <audio> element automatically
