@@ -28,7 +28,6 @@ export const CatalogLayoutColorGroupingView: FC<CatalogLayoutColorGroupViewProps
 
 const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> = (props) => {
     const { page = null } = props;
-    const [colorableItems, setColorableItems] = useState<Map<string, number[]>>(new Map<string, number[]>());
     const { currentOffer = null, roomPreviewer = null } = useCatalogData();
     const { setCurrentOffer = null } = useCatalogUiState();
     const { isVisible: inventoryVisible = false } = useInventoryFurni();
@@ -70,10 +69,12 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
         }
     };
 
-    const offers = useMemo(() => {
+    // Compute offers AND the color swatch map together; calling setState
+    // (setColorableItems) inside this memo crashed React and froze the catalog.
+    const { offers, colorableItems } = useMemo(() => {
         const offers: IPurchasableOffer[] = [];
         const addedColorableItems = new Map<string, boolean>();
-        const updatedColorableItems = new Map<string, number[]>();
+        const colorableItems = new Map<string, number[]>();
 
         page.offers.sort(sortByColorIndex);
 
@@ -88,8 +89,8 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
                 const name = furniData.className;
                 const colorIndex = furniData.colorIndex;
 
-                if (!updatedColorableItems.has(name)) {
-                    updatedColorableItems.set(name, []);
+                if (!colorableItems.has(name)) {
+                    colorableItems.set(name, []);
                 }
 
                 let selectedColor = 0xffffff;
@@ -102,8 +103,8 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
                         }
                     }
 
-                    if (updatedColorableItems.get(name).indexOf(selectedColor) === -1) {
-                        updatedColorableItems.get(name)[colorIndex] = selectedColor;
+                    if (colorableItems.get(name).indexOf(selectedColor) === -1) {
+                        colorableItems.get(name)[colorIndex] = selectedColor;
                     }
                 }
 
@@ -114,8 +115,7 @@ const CatalogLayoutColorGroupingGridView: FC<CatalogLayoutColorGroupViewProps> =
             }
         });
         offers.sort(sortyByFurnitureClassName);
-        setColorableItems(updatedColorableItems);
-        return offers;
+        return { offers, colorableItems };
     }, [page.offers]);
 
     return (
