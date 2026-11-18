@@ -77,6 +77,30 @@ system.log.debug=false
 system.log.packets=false
 EOF
 
+# ------------------------------------------------------------------ voice (LiveKit)
+# Public URL is always the hotel domain via the nginx /livekit proxy. The shared
+# API secret is generated on first boot and persisted so the LiveKit server
+# container can be (re)created with the same key.
+LIVEKIT_API_KEY="${LIVEKIT_API_KEY:-polaris}"
+if [ -z "${LIVEKIT_API_SECRET:-}" ]; then
+  if [ ! -s /data/secrets/livekit-api-secret ]; then
+    mkdir -p /data/secrets
+    LIVEKIT_API_SECRET="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)"
+    printf '%s' "${LIVEKIT_API_SECRET}" > /data/secrets/livekit-api-secret
+    chmod 600 /data/secrets/livekit-api-secret
+  else
+    LIVEKIT_API_SECRET="$(cat /data/secrets/livekit-api-secret)"
+  fi
+fi
+cat >> /data/config.ini <<EOF
+
+# Voice (LiveKit self-hosted, docs/PLANO-VOZ-CAMERA.md)
+voice.livekit.url=wss://${DOMAIN}/livekit
+voice.livekit.api_key=${LIVEKIT_API_KEY}
+voice.livekit.api_secret=${LIVEKIT_API_SECRET}
+EOF
+echo "[entrypoint] voice livekit: key=${LIVEKIT_API_KEY} url=wss://${DOMAIN}/livekit"
+
 # ---------------------------------------------- emulator_settings sync (pre-boot)
 # The emulator's emulator_settings table OVERRIDES config.ini (loadFromDatabase
 # runs after the ini load). A previous boot can write defaults back over the

@@ -64,6 +64,8 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     private RoomTradeManager tradeManager;
     private RoomPromotionManager promotionManager;
     private RoomWordQuizManager wordQuizManager;
+    // Voice: "assembleia" mode — everyone in the room hears everyone (in-memory, resets on reboot).
+    private boolean voiceAssembly = false;
     private RoomRightsManager rightsManager;
     private RoomUnitManager unitManager;
     private RoomItemManager itemManager;
@@ -2046,6 +2048,15 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
 
     public void startWordQuiz(String question, int duration) {
         this.wordQuizManager.startWordQuiz(question, duration);
+    }
+
+    public boolean isVoiceAssembly() {
+        return this.voiceAssembly;
+    }
+
+    public void setVoiceAssembly(boolean value) {
+        this.voiceAssembly = value;
+        this.sendComposer(new polaris.messages.outgoing.voice.VoiceRoomStateComposer(this.getId(), this.voiceAssembly));
     }
 
     public boolean hasActiveWordQuiz() {

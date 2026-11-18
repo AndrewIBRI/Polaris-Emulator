@@ -829,4 +829,6 @@ public class Incoming {
     public static final int GetUserNftWardrobeEvent = 3206;
     public static final int SaveUserNftWardrobeEvent = 133;
     public static final int GetSelectedNftWardrobeOutfitEvent = 3810;
+    // Voice (LiveKit self-hosted): client asks for a LiveKit access token on room entry.
+    public static final int GetVoiceTokenEvent = 6102;
 }

@@ -39766,6 +39766,7 @@ INSERT INTO `emulator_texts` (`key`, `value`) VALUES
 	('commands.keys.cmd_reload_room', 'reload_room;reload;reloadroom'),
 	('commands.keys.cmd_remove_prefix', 'removeprefix'),
 	('commands.keys.cmd_roomalert', 'roomalert;room_alert;ra'),
+	('commands.keys.cmd_assembleia', 'assembleia'),
 	('commands.keys.cmd_roombadge', 'roombadge'),
 	('commands.keys.cmd_roomcredits', 'roomcredits;room_credits;roomcoins;room_coins'),
 	('commands.keys.cmd_roomeffect', 'roomeffect;room_effect'),

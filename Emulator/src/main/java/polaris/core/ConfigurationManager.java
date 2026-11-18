@@ -138,6 +138,11 @@ public class ConfigurationManager {
             envMapping.put("logging.errors.runtime", "RT_LOG_ERRORS");
             envMapping.put("hotel.timezone", "HOTEL_TIMEZONE");
 
+            // Voice (LiveKit self-hosted)
+            envMapping.put("voice.livekit.url", "LIVEKIT_URL");
+            envMapping.put("voice.livekit.api_key", "LIVEKIT_API_KEY");
+            envMapping.put("voice.livekit.api_secret", "LIVEKIT_API_SECRET");
+
             for (Map.Entry<String, String> entry : envMapping.entrySet()) {
                 String envValue = System.getenv(entry.getValue());
 

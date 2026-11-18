@@ -54,6 +54,7 @@ public class CommandHandler {
             SuperPullCommand.class,
             TransformCommand.class,
             RoomBundleCommand.class,
+            AssembleiaCommand.class,
             WordQuizCommand.class);
 
     private static final Comparator<Command> ALPHABETICAL_ORDER = new Comparator<Command>() {
@@ -492,6 +493,7 @@ public class CommandHandler {
         addCommand(new UpdateWordFilterCommand());
         addCommand(new UserInfoCommand());
         addCommand(new WordQuizCommand());
+        addCommand(new AssembleiaCommand());
         addCommand(new UpdateYoutubePlaylistsCommand());
         addCommand(new AddYoutubePlaylistCommand());
         addCommand(new SoftKickCommand());

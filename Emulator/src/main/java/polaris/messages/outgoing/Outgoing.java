@@ -915,4 +915,7 @@ public class Outgoing {
     // AIR avatar collectibles (avatar editor NFT tab, docs/collectibles.md): official ids, free here.
     public static final int UserNftWardrobeComposer = 2236;
     public static final int SelectedNftWardrobeOutfitComposer = 350;
+    // Voice (LiveKit self-hosted, docs/PLANO-VOZ-CAMERA.md): custom ids, free here.
+    public static final int VoiceTokenComposer = 6101;
+    public static final int VoiceRoomStateComposer = 6104;
 }
