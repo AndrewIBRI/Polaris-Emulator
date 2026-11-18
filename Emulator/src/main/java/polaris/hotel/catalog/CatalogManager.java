@@ -311,6 +311,8 @@ public class CatalogManager {
     public final Map<Integer, TargetOffer> targetOffers;
     public final Map<Integer, ClothItem> clothing;
     public final Int2IntMap offerDefs;
+    /** Furni id (item_ids / furnidata) -> catalog item id. Search results send the FURNI id, not a catalog offer id. */
+    public final Int2IntMap furniDefs;
     public final Int2IntMap buildersClubOfferDefs;
     /** The base item every recycler box is made of. */
     public static final String RECYCLER_BOX = "ecotron_box";
@@ -341,6 +343,7 @@ public class CatalogManager {
         this.targetOffers = new HashMap<>();
         this.clothing = new HashMap<>();
         this.offerDefs = new Int2IntOpenHashMap();
+        this.furniDefs = new Int2IntOpenHashMap();
         this.buildersClubOfferDefs = new Int2IntOpenHashMap();
         this.vouchers = new ArrayList<>();
         this.limitedNumbers = new HashMap<>();
@@ -686,6 +689,7 @@ public class CatalogManager {
 
     private synchronized void loadCatalogItems(Map<Integer, CatalogPage> pages) {
         this.offerDefs.clear();
+        this.furniDefs.clear();
         this.clubItems.clear();
         catalogItemAmount = 0;
 
@@ -724,6 +728,15 @@ public class CatalogManager {
                         this.offerDefs.put(searchOfferId, item.getId());
                     }
                 } else item.update(set);
+
+                // Index by FURNI id so catalogue search (which sends the
+                // furnidata item id) resolves to THIS catalog item instead
+                // of colliding with a catalog row that shares the id.
+                if (item.getSearchOfferId() != -1) {
+                    for (Item base : item.getBaseItems()) {
+                        this.furniDefs.putIfAbsent(base.getId(), item.getId());
+                    }
+                }
 
                 if (item.isLimited()) {
                     this.createOrUpdateLimitedConfig(item);
