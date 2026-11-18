@@ -24,6 +24,12 @@ Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyP
 - `Assets/badgeparts/` — partes de badge para o imager (verificar origem)
 - `Dockerfile` — build all-in-one; `EASYPANEL.md` — guia de deploy
 
+## Voz (fase 1 implementada, 2026-11-18)
+- LiveKit self-hosted: serviço `livekit` no `docker-compose.yml` (canônico), config `docker/livekit.yaml`, secret HS256 gerada no 1º boot do hotel em `/data/secrets/livekit-api-secret` (volume compartilhado), nginx proxy `/livekit` → livekit:7880, porta TCP 7881 + UDP 50000-50100
+- Emulador: `VoiceService` (JWT HS256 via javax.crypto), composers `VoiceTokenComposer` (6101)/`VoiceRoomStateComposer` (6104), `GetVoiceTokenEvent` (6102), comando `:assembleia` (on/off por sala, in-memory, ROOM_COMMAND)
+- Cliente: `livekit-client` no Octane; `api/voice/VoiceConnection.ts`, `hooks/voice/useVoice.ts`, `state/voiceStore.ts`, HUD `VoiceWidgetView` (mic/câmera/tela; botão direito no mic = mute-on-blur; badge "Modo assembleia"); compile ok + vite build ok
+- Fases futuras: zonas espaciais por tiles (editor), posição via metadados, sobrevivência a restart (assembleia é in-memory)
+
 ## Decisões
 - **Assets vendored no repo** (~3GB) em vez de download no boot — self-contained, sem dependência de repos externos que podem sumir
 - **Push em chunks < 2GB**: furniture em 2 partes, c_images, hof_furni, gamedata, client, docs
