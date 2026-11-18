@@ -1,21 +1,28 @@
 # Stack canônico do Polaris Hotel — sobe TUDO com um comando (hotel + banco + voz).
 #
-#   cp .env.example .env   # preencha os valores
 #   docker compose up -d --build
 #
-# No EasyPanel: Projeto → + Service → Compose → apontando para este repo/branch.
-# O compose cria os 3 serviços e o primeiro boot gera todas as secrets sozinho
-# (secret do LiveKit fica em /data/secrets/livekit-api-secret, no volume).
+# Tudo funciona sem .env (fallbacks inline) e o primeiro boot gera todas as
+# secrets sozinho (secret do LiveKit fica em /data/secrets/livekit-api-secret,
+# no volume compartilhado).
+#
+# No EasyPanel (serviço do tipo Compose, source Git = este repo):
+# - SEM `ports` no hotel (o painel valida: porta publicada colide com o host).
+#   O domínio é criado na aba Domains → alvo `hotel`, porta 8080.
+# - O `livekit` publica TCP 7881 + UDP 50000-50100 no host (WebRTC precisa de
+#   portas reais no host — é serviço não-HTTP, permitido pelo painel).
+# - `build: .` só é usado no deploy local; no EasyPanel é o mesmo Dockerfile
+#   buildado pelo `docker compose up --build`.
 
 services:
   db:
     image: mariadb:11.4
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set in .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-polaris-root-2026}
       MARIADB_DATABASE: ${DB_NAME:-polaris}
       MARIADB_USER: ${DB_USER:-polaris}
-      MARIADB_PASSWORD: ${DB_PASSWORD:?set in .env}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-polaris-2026}
     volumes:
       - db-data:/var/lib/mysql
     healthcheck:
@@ -25,7 +32,7 @@ services:
       retries: 12
 
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
     # Espera a secret gerada pelo primeiro boot do hotel e sobe com ela.
     entrypoint: [ "/bin/sh", "-c", "until [ -s /data/secrets/livekit-api-secret ]; do sleep 2; done; LIVEKIT_KEYS=\"${LIVEKIT_API_KEY:-polaris}: $$(cat /data/secrets/livekit-api-secret)\" exec /livekit-server --config=/etc/livekit/livekit.yaml" ]
@@ -49,12 +56,14 @@ services:
       DB_PORT: "3306"
       DB_NAME: ${DB_NAME:-polaris}
       DB_USER: ${DB_USER:-polaris}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: ${DB_PASSWORD:-polaris-2026}
       JAVA_XMX: ${JAVA_XMX:-3072m}
     volumes:
       - hotel-data:/data
-    ports:
-      - "8080:8080"
+    # Sem ports no hotel: o roteamento público é feito pelo EasyPanel
+    # (aba Domains → alvo `hotel`, porta 8080) ou pelo nginx do host.
+    expose:
+      - "8080"
 
 volumes:
   db-data:
