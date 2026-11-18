@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -57,14 +56,11 @@ public class VoiceService {
         long now = Instant.now().getEpochSecond();
         String roomName = "hotel-" + roomId;
 
-        JsonArray roomList = new JsonArray();
-        roomList.add(roomName);
-
         JsonObject video = new JsonObject();
         video.addProperty("roomJoin", true);
         video.addProperty("room", roomName);
         video.addProperty("roomCreate", true);
-        video.add("roomList", roomList);
+        video.addProperty("roomList", true);
         video.addProperty("canPublish", true);
         video.addProperty("canSubscribe", true);
         video.addProperty("canPublishData", true);
