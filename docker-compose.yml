@@ -41,6 +41,7 @@ services:
       DB_NAME: ${DB_NAME:-polaris}
     volumes:
       - ./Database:/seed:ro
+    entrypoint: [ "/bin/sh", "-c" ]
     command:
       - |
         until mariadb -h db -uroot -p"$$MARIADB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; do sleep 3; done
