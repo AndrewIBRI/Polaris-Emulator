@@ -1,4 +1,6 @@
 import { FC, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { GetRoomEngine } from '@octane/renderer';
+import { GetRoomSession } from '../../../../api';
 import { OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../../../common/card';
 import { useVoiceStore, VoiceZoneArea } from '../../../../state/voiceStore';
 import { saveVoiceZones } from '../../../../api/voice/saveVoiceZones';
@@ -40,7 +42,24 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const zoneFactors = useVoiceStore((state) => state.zoneFactors);
     const setZoneEditorOpen = useVoiceStore((state) => state.setZoneEditorOpen);
 
-    const heights = useMemo(() => parseHeights(tilemap), [ tilemap ]);
+    // Preferência: heightmap do evento; fallback: heightmap ao vivo do engine do jogo (caso o evento tenha passado antes do hook montar).
+    const heights = useMemo(() =>
+    {
+        const parsed = parseHeights(tilemap);
+
+        if(parsed.length) return parsed;
+
+        try
+        {
+            const session = GetRoomSession();
+
+            return session ? (GetRoomEngine().getRoomFloorHeights(session.roomId) ?? []) : [];
+        }
+        catch
+        {
+            return [];
+        }
+    }, [ tilemap ]);
 
     const [ draft, setDraft ] = useState<VoiceZoneArea[]>([]);
     const [ selected, setSelected ] = useState<number>(-1);

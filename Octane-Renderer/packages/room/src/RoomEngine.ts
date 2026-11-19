@@ -1710,6 +1710,30 @@ export class RoomEngine implements IRoomEngine, IRoomCreator, IRoomEngineService
         return instanceData.furnitureStackingHeightMap;
     }
 
+    /** Alturas do piso da sala como grade [[-1 (bloqueado), 0..15...], ...] — para editores fora do fluxo de eventos. */
+    public getRoomFloorHeights(roomId: number): number[][]
+    {
+        const heightMap = this.getFurnitureStackingHeightMap(roomId);
+
+        if(!heightMap || !heightMap.width || !heightMap.height) return null;
+
+        const rows: number[][] = [];
+
+        for(let y = 0; y < heightMap.height; y++)
+        {
+            const row: number[] = [];
+
+            for(let x = 0; x < heightMap.width; x++)
+            {
+                row.push((heightMap as unknown as { isRoomTile?: (x: number, y: number) => boolean }).isRoomTile?.(x, y) ? Math.max(0, heightMap.getTileHeight(x, y)) : -1);
+            }
+
+            rows.push(row);
+        }
+
+        return rows;
+    }
+
     public setFurnitureStackingHeightMap(roomId: number, heightMap: IFurnitureStackingHeightMap): void
     {
         const instanceData = this.getRoomInstanceData(roomId);

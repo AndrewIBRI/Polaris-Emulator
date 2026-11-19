@@ -109,6 +109,11 @@ export class FurnitureStackingHeightMap implements IFurnitureStackingHeightMap
         return true;
     }
 
+    public isRoomTile(x: number, y: number): boolean
+    {
+        return (this.validPosition(x, y) ? this._isRoomTile[((y * this._width) + x)] : false);
+    }
+
     public get width(): number
     {
         return this._width;
