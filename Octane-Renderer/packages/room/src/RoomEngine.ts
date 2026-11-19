@@ -1710,6 +1710,57 @@ export class RoomEngine implements IRoomEngine, IRoomCreator, IRoomEngineService
         return instanceData.furnitureStackingHeightMap;
     }
 
+    /** Móveis de piso da sala (realizados + pendentes de asset): [{typeId, x, y}] — para editores fora do fluxo de eventos. */
+    public getRoomFurnitureData(roomId: number): { typeId: number; x: number; y: number }[]
+    {
+        const instanceData = this.getRoomInstanceData(roomId);
+
+        if(!instanceData) return [];
+
+        const result: { typeId: number; x: number; y: number }[] = [];
+        const seen = new Set<number>();
+
+        for(const obj of this.getRoomObjects(roomId, 10) || [])
+        {
+            if(!obj || !obj.model) continue;
+
+            const typeId = obj.model.getValue<number>('furniture_type_id'); // RoomObjectVariable.FURNITURE_TYPE_ID
+
+            if(!typeId) continue;
+
+            const location = obj.getLocation();
+
+            if(!location) continue;
+
+            const x = Math.floor(location.x);
+            const y = Math.floor(location.y);
+
+            seen.add(x * 1000 + y);
+            result.push({ typeId, x, y });
+        }
+
+        try
+        {
+            for(const data of instanceData.peekPendingFurnitureFloor() || [])
+            {
+                if(!data || !data.typeId || !data.location) continue;
+
+                const x = Math.floor(data.location.x);
+                const y = Math.floor(data.location.y);
+
+                if(seen.has(x * 1000 + y)) continue;
+
+                result.push({ typeId: data.typeId, x, y });
+            }
+        }
+        catch
+        {
+            // fila indisponível
+        }
+
+        return result;
+    }
+
     /** Alturas do piso da sala como grade [[-1 (bloqueado), 0..15...], ...] — para editores fora do fluxo de eventos. */
     public getRoomFloorHeights(roomId: number): number[][]
     {

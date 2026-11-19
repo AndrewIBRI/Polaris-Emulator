@@ -51,24 +51,14 @@ export const collectFurni = (): FurniMarker[] =>
     {
         const engine = GetRoomEngine();
         const dataManager = GetSessionDataManager();
-        const objects = engine.getRoomObjects(session.roomId, RoomObjectCategory.FLOOR) || [];
+        const furniData = engine.getRoomFurnitureData(session.roomId) || [];
 
-        dbgObjCount = objects.length;
+        dbgObjCount = furniData.length;
 
-        for(const obj of objects)
+        for(const item of furniData)
         {
-            if(!obj || !obj.model) continue;
-
-            const typeId = obj.model.getValue<number>(RoomObjectVariable.FURNITURE_TYPE_ID);
-
-            if(!typeId) continue;
-
-            const location = (obj as { getLocation?: () => { x: number; y: number } }).getLocation?.();
-
-            if(!location) continue;
-
-            const name = dataManager.getFloorItemData(typeId)?.name || `#${typeId}`;
-            const key = `${ Math.floor(location.x) },${ Math.floor(location.y) }`;
+            const name = dataManager.getFloorItemData(item.typeId)?.name || `#${item.typeId}`;
+            const key = `${ item.x },${ item.y }`;
             const list = byTile.get(key) || [];
 
             list.push(name);

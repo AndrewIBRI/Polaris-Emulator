@@ -148,6 +148,12 @@ export class RoomInstanceData
         return existing;
     }
 
+    /** Lista sem consumir os móveis de piso pendentes (fila de asset load). */
+    public peekPendingFurnitureFloor(): RoomFurnitureData[]
+    {
+        return Array.from(this._floorStack.values());
+    }
+
     public getNextPendingFurnitureFloor(): RoomFurnitureData
     {
         if(!this._floorStack.size) return null;
