@@ -144,8 +144,11 @@ fi
 # the domain-dependent files are (re)generated on every boot.
 cp -n /opt/dist/configuration/* /data/configuration/ 2>/dev/null || true
 
-sed "s/{{DOMAIN}}/${DOMAIN}/g" /opt/templates/renderer-config.json > /data/configuration/renderer-config.json
-sed "s/{{DOMAIN}}/${DOMAIN}/g" /opt/templates/ui-config.json > /data/configuration/ui-config.json
+# Domain-dynamic configs: o arquivo guarda o marcador {{DOMAIN}} literal e o
+# NGINX o substitui pelo Host da requisição (sub_filter) ao servir. Qualquer
+# domínio apontado pro hotel recebe configs em same-origin, sem APP_DOMAIN fixo.
+cp /opt/templates/renderer-config.json /data/configuration/renderer-config.json
+cp /opt/templates/ui-config.json /data/configuration/ui-config.json
 
 cat > /data/configuration/client-mode.json <<EOF
 {
