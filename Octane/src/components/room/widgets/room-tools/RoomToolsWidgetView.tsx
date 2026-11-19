@@ -1,4 +1,4 @@
-import { AddLinkEventTracker, CreateLinkEvent, GetGuestRoomResultEvent, ILinkEventTracker, GetRoomEngine, RateFlatMessageComposer, RemoveLinkEventTracker, RoomEngineEvent, RoomGeometry } from '@octane/renderer';
+import { AddLinkEventTracker, CreateLinkEvent, GetGuestRoomResultEvent, ILinkEventTracker, GetRoomEngine, RateFlatMessageComposer, RemoveLinkEventTracker, RoomControllerLevel, RoomEngineEvent, RoomGeometry } from '@octane/renderer';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FC, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { GetConfigurationValue, LocalizeText, SendMessageComposer, SetLocalStorage, TryVisitRoom } from '../../../../api';
@@ -148,6 +148,9 @@ export const RoomToolsWidgetView: FC<{}> = (props) => {
             case 'settings':
                 CreateLinkEvent('navigator/toggle-room-info');
                 return;
+            case 'floorplan':
+                CreateLinkEvent('floor-editor/show');
+                return;
             case 'zoom_in':
                 zoomRoom(1);
                 return;
@@ -281,6 +284,7 @@ export const RoomToolsWidgetView: FC<{}> = (props) => {
     const tools = [
         ...(hasWiredAchievements ? [{ action: 'achievements', icon: 'icon-room-achievements', label: localizeWithFallback('room.achievements.button.text', 'Achievements') }] : []),
         { action: 'settings', icon: 'icon-cog', label: LocalizeText('room.settings.button.text') },
+        ...(roomSession?.controllerLevel >= RoomControllerLevel.ROOM_OWNER ? [{ action: 'floorplan', icon: 'icon-house', label: localizeWithFallback('room.floorplan.button.text', 'Planta da sala') }] : []),
         { action: 'chat_history', icon: 'icon-chat-history', label: LocalizeText('room.chathistory.button.text') },
         ...(navigatorData.canRate || hasLikedRoom ? [{ action: 'like_room', icon: 'icon-like-room', label: LocalizeText('room.like.button.text'), disabled: hasLikedRoom }] : []),
         { action: 'toggle_room_link', icon: 'icon-room-link', label: LocalizeText('navigator.embed.caption') }

@@ -16,6 +16,7 @@ import {
 } from '@octane/renderer';
 import { FC, useEffect, useMemo, useRef, useState } from 'react';
 import { LocalizeText, SendMessageComposer, localizeWithFallback } from '../../api';
+import { useVoiceStore } from '../../state/voiceStore';
 import { Base, OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../common';
 import { useMessageEvent, useOctaneEvent } from '../../hooks';
 import { isTextEntryTarget } from '../../hooks/rooms/useRoomKeyboardMovement';
@@ -57,6 +58,7 @@ const clampThickness = (v: number): ThicknessLevel => {
 
 export const FloorplanEditorView: FC<Props> = ({ externalSession }) => {
     const [roomVisible, setRoomVisible] = useState(false);
+    const canEditZones = useVoiceStore((s) => s.canEditZones);
     const [importExportVisible, setImportExportVisible] = useState(false);
     const [liveSync, setLiveSync] = useState(true);
     const [panMode, setPanMode] = useState(false);
@@ -287,6 +289,17 @@ export const FloorplanEditorView: FC<Props> = ({ externalSession }) => {
                                     </span>
                                     {!isExternal && (
                                         <div className="fp-banner-toggles">
+                                            {canEditZones && (
+                                                <Base component={BaseButton} type="button"
+                                                    pointer
+                                                    className="fp-toggle is-warm"
+                                                    onClick={() => useVoiceStore.getState().setZoneEditorOpen(true)}
+                                                    title="Configurar zonas de áudio da sala"
+                                                >
+                                                    <span className="fp-toggle-dot" />
+                                                    Zonas de áudio…
+                                                </Base>
+                                            )}
                                             <Base component={BaseButton} type="button"
                                                 pointer
                                                 data-testid="floorplan-live-sync"
