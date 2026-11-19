@@ -44,12 +44,18 @@ export const collectFurni = (): FurniMarker[] =>
 
     const byTile = new Map<string, string[]>();
 
+    let dbgObjCount = -1;
+    let dbgError = '';
+
     try
     {
         const engine = GetRoomEngine();
         const dataManager = GetSessionDataManager();
+        const objects = engine.getRoomObjects(session.roomId, RoomObjectCategory.FLOOR) || [];
 
-        for(const obj of engine.getRoomObjects(session.roomId, RoomObjectCategory.FLOOR))
+        dbgObjCount = objects.length;
+
+        for(const obj of objects)
         {
             if(!obj || !obj.model) continue;
 
@@ -69,10 +75,14 @@ export const collectFurni = (): FurniMarker[] =>
             byTile.set(key, list);
         }
     }
-    catch
+    catch(error)
     {
+        dbgError = String(error).slice(0, 120);
+
         // engine indisponível: segue sem móveis
     }
+
+    (window as unknown as { __zDbg?: unknown }).__zDbg = { session: !!session, roomId: session?.roomId, objCount: dbgObjCount, error: dbgError, markers: byTile.size };
 
     const markers: FurniMarker[] = [];
 
