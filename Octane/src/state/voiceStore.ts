@@ -59,10 +59,8 @@ interface VoiceState {
     volume: number;
     /** Video tiles currently published in the room (local + remote). */
     videos: VoiceVideo[];
-    /** Whether the camera window (pop-up) is open. */
-    cameraWindowVisible: boolean;
-    /** Whether the screen-share transmission window is open. */
-    screenWindowVisible: boolean;
+    /** Window ids the user closed manually ('camera', 'screen:<identity>'). */
+    hiddenWindows: Set<string>;
     /** Room audio zones (spatial voice) + whether this user may edit them. */
     zones: VoiceZoneArea[];
     canEditZones: boolean;
@@ -99,8 +97,8 @@ interface VoiceState {
     addVideo: (video: VoiceVideo) => void;
     removeVideo: (id: string) => void;
     clearVideos: () => void;
-    setCameraWindowVisible: (visible: boolean) => void;
-    setScreenWindowVisible: (visible: boolean) => void;
+    /** Shows/hides one video window ('camera' or 'screen:<identity>'). */
+    setWindowHidden: (id: string, hidden: boolean) => void;
     setZones: (zones: VoiceZoneArea[]) => void;
     setCanEditZones: (canEdit: boolean) => void;
     setZoneEditorOpen: (open: boolean) => void;
@@ -166,8 +164,7 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     speakerDeviceId: loadPref('speaker-device', ''),
     volume: parseFloat(loadPref('volume', '1')) || 1,
     videos: [],
-    cameraWindowVisible: true,
-    screenWindowVisible: true,
+    hiddenWindows: new Set<string>(),
     zones: [],
     canEditZones: false,
     zoneEditorOpen: false,
@@ -183,15 +180,27 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
 
         videos.push(video);
 
-        // a new stream arriving opens its own window (camera pop-up vs transmission)
-        return video.source === 'camera'
-            ? { videos, cameraWindowVisible: true }
-            : { videos, screenWindowVisible: true };
+        // A new stream arriving reopens its own window (unless the user closed it
+        // after the SAME stream started — hiddenWindows only clears on new adds
+        // for that id, so a manual close during playback is respected).
+        const hiddenWindows = new Set(state.hiddenWindows);
+
+        if(video.source === 'camera' && !hiddenWindows.has(video.id)) hiddenWindows.delete('camera');
+        else hiddenWindows.delete(video.id);
+
+        return { videos, hiddenWindows };
     }),
     removeVideo: (id) => set((state) => ({ videos: state.videos.filter((video) => video.id !== id) })),
-    clearVideos: () => set({ videos: [] }),
-    setCameraWindowVisible: (cameraWindowVisible) => set({ cameraWindowVisible }),
-    setScreenWindowVisible: (screenWindowVisible) => set({ screenWindowVisible }),
+    clearVideos: () => set({ videos: [], hiddenWindows: new Set<string>() }),
+    setWindowHidden: (id, hidden) => set((state) =>
+    {
+        const hiddenWindows = new Set(state.hiddenWindows);
+
+        if(hidden) hiddenWindows.add(id);
+        else hiddenWindows.delete(id);
+
+        return { hiddenWindows };
+    }),
     setZones: (zones) => set({ zones }),
     setCanEditZones: (canEditZones) => set({ canEditZones }),
     setZoneEditorOpen: (zoneEditorOpen) => set({ zoneEditorOpen }),

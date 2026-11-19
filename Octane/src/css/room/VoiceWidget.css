@@ -219,6 +219,26 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+}
+
+/* janela de transmissão: UM vídeo por janela, sempre ajustado (contain) —
+   nunca cortado, independentemente do tamanho da janela */
+.octane-video-window__grid--single {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.octane-video-window__grid--single .octane-video-window__tile {
+    flex: 1;
+    min-width: 0;
+    min-height: 220px;
+    aspect-ratio: auto;
+}
+
+.octane-video-window__grid--single .octane-video-window__video {
+    object-fit: contain;
 }
 
 .octane-video-window__stage:fullscreen {
@@ -229,6 +249,10 @@
     flex: 1;
     max-height: none;
     height: calc(100% - 40px);
+}
+
+.octane-video-window__stage:fullscreen .octane-video-window__grid--single {
+    height: 100%;
 }
 
 /* picture-in-picture da câmera: canto inferior direito, por cima da tela */

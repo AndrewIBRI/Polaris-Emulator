@@ -390,6 +390,19 @@ class VoiceConnection
             }
         });
 
+        // Mute/unmute também abre/fecha o pop-up do outro lado: alguns clientes
+        // apenas silenciam o track (sem unpublish), então TrackSubscribed/Unsubscribed
+        // não disparam e o pop-up ficaria preso na tela.
+        room.on(RoomEvent.TrackMuted, (publication: { source?: Track.Source }, participant: RemoteParticipant) =>
+        {
+            if(publication?.source === Track.Source.Camera) this._removeVideo(participant.identity, 'camera');
+        });
+
+        room.on(RoomEvent.TrackUnmuted, (publication: { source?: Track.Source }, participant: RemoteParticipant) =>
+        {
+            if(publication?.source === Track.Source.Camera) this._upsertVideo((publication as { track?: Track }).track, participant.identity, 'camera', false);
+        });
+
         room.on(RoomEvent.Disconnected, () =>
         {
             this._room = null;

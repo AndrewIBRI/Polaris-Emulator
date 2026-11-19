@@ -1,11 +1,24 @@
 import { FC, useCallback, useEffect, useRef } from 'react';
 import { DraggableWindowPosition, OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../../../common';
 import { useVoiceStore, VoiceVideo } from '../../../../state/voiceStore';
+import { GetRoomSession } from '../../../../api';
 import { voiceConnection } from '../../../../api/voice/VoiceConnection';
 import '../../../../css/room/VoiceWidget.css';
 
+/** Nome de exibição do participante ("Você" para o próprio). */
+const displayName = (video: VoiceVideo): string =>
+{
+    if(video.local) return 'Você';
+
+    const webID = parseInt(video.identity.replace(/^user-/, ''), 10);
+
+    if(!Number.isFinite(webID) || webID <= 0) return video.identity;
+
+    return GetRoomSession()?.userDataManager.getUserData(webID)?.name || video.identity;
+};
+
 /** Renders one video MediaStreamTrack in a <video> element. */
-const VideoTile: FC<{ video: VoiceVideo; className?: string }> = ({ video, className }) =>
+const VideoTile: FC<{ video: VoiceVideo; className?: string; showLabel?: boolean }> = ({ video, className, showLabel = true }) =>
 {
     const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -27,8 +40,6 @@ const VideoTile: FC<{ video: VoiceVideo; className?: string }> = ({ video, class
         };
     }, [ video.track ]);
 
-    const label = video.local ? 'Você' : video.identity;
-
     return (
         <div className={ 'octane-video-window__tile' + (className ? ' ' + className : '') }>
             <video
@@ -37,9 +48,10 @@ const VideoTile: FC<{ video: VoiceVideo; className?: string }> = ({ video, class
                 autoPlay
                 muted={ video.local }
                 playsInline />
-            <span className="octane-video-window__label">
-                { label } · { video.source === 'camera' ? 'Câmera' : 'Tela' }
-            </span>
+            { showLabel &&
+                <span className="octane-video-window__label">
+                    { displayName(video) } · { video.source === 'camera' ? 'Câmera' : 'Tela' }
+                </span> }
         </div>
     );
 };
@@ -71,16 +83,18 @@ const VolumeControl: FC<{}> = () =>
 };
 
 /**
- * Janela pop-up da CÂMERA (local + remotos), separada da transmissão.
- * Pequena, como nos apps de videochamada.
+ * Janela pop-up da CÂMERA. Só existe quando NÃO há transmissão de tela:
+ * com tela compartilhada a câmera vira picture-in-picture dentro da janela
+ * de transmissão (a câmera não abre janela separada — evita duplicação).
  */
 export const CameraWindowView: FC<{}> = () =>
 {
-    const { videos, cameraWindowVisible, setCameraWindowVisible } = useVoiceStore();
+    const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
 
+    const screens = videos.filter((video) => video.source === 'screen');
     const cameras = videos.filter((video) => video.source === 'camera');
 
-    if(!cameras.length || !cameraWindowVisible) return null;
+    if(!cameras.length || screens.length || hiddenWindows.has('camera')) return null;
 
     return (
         <OctaneCardView
@@ -92,7 +106,7 @@ export const CameraWindowView: FC<{}> = () =>
             windowPosition={ DraggableWindowPosition.CENTER }>
             <OctaneCardHeaderView
                 headerText="Câmera"
-                onCloseClick={ () => setCameraWindowVisible(false) } />
+                onCloseClick={ () => setWindowHidden('camera', true) } />
             <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
                 <div className="octane-video-window__grid">
                     { cameras.map((video) =>
@@ -104,15 +118,14 @@ export const CameraWindowView: FC<{}> = () =>
 };
 
 /**
- * Janela da TRANSMISSÃO (compartilhamento de tela, local + remoto).
- * Em tela cheia, a câmera vira picture-in-picture no canto inferior
- * direito, por cima da tela — como nos apps de videochamada.
+ * UMA janela por transmissão de tela ("Transmissão – Nome"), cada uma
+ * independente e controlável. Câmeras aparecem como picture-in-picture.
  */
 export const ScreenWindowView: FC<{}> = () =>
 {
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const { videos, screenWindowVisible, setScreenWindowVisible } = useVoiceStore();
+    const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
 
     const screens = videos.filter((video) => video.source === 'screen');
     const cameras = videos.filter((video) => video.source === 'camera');
@@ -133,44 +146,55 @@ export const ScreenWindowView: FC<{}> = () =>
         }
     }, []);
 
-    if(!screens.length || !screenWindowVisible) return null;
+    if(!screens.length) return null;
 
     return (
-        <OctaneCardView
-            className="octane-video-window octane-video-window--screen"
-            disableDrag={ false }
-            style={ { pointerEvents: 'auto' } }
-            theme="primary-slim"
-            uniqueKey="voice-screen-window"
-            windowPosition={ DraggableWindowPosition.CENTER }>
-            <OctaneCardHeaderView
-                headerText="Transmissão"
-                onCloseClick={ () => setScreenWindowVisible(false) } />
-            <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
-                <div ref={ containerRef } className="octane-video-window__stage">
-                    <div className="octane-video-window__grid">
-                        { screens.map((video) =>
-                            <VideoTile key={ video.id } video={ video } />) }
-                    </div>
+        <>
+            { screens.map((video) =>
+            {
+                if(hiddenWindows.has(video.id)) return null;
 
-                    { cameras.length > 0 &&
-                        <div className="octane-video-window__pip">
-                            { cameras.map((video) =>
-                                <VideoTile key={ 'pip-' + video.id } video={ video } className="octane-video-window__tile--pip" />) }
-                        </div> }
+                const windowKey = 'voice-screen-window-' + video.identity;
 
-                    <div className="octane-video-window__controls">
-                        <button
-                            className="octane-video-window__btn"
-                            type="button"
-                            onClick={ onFullscreen }
-                            title="Tela cheia">
-                            ⛶ Tela cheia
-                        </button>
-                        <VolumeControl />
-                    </div>
-                </div>
-            </OctaneCardContentView>
-        </OctaneCardView>
+                return (
+                    <OctaneCardView
+                        key={ video.id }
+                        className="octane-video-window octane-video-window--screen"
+                        disableDrag={ false }
+                        style={ { pointerEvents: 'auto' } }
+                        theme="primary-slim"
+                        uniqueKey={ windowKey }
+                        windowPosition={ DraggableWindowPosition.CENTER }>
+                        <OctaneCardHeaderView
+                            headerText={ 'Transmissão – ' + displayName(video) }
+                            onCloseClick={ () => setWindowHidden(video.id, true) } />
+                        <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
+                            <div ref={ containerRef } className="octane-video-window__stage">
+                                <div className="octane-video-window__grid octane-video-window__grid--single">
+                                    <VideoTile video={ video } />
+                                </div>
+
+                                { cameras.length > 0 &&
+                                    <div className="octane-video-window__pip">
+                                        { cameras.map((camera) =>
+                                            <VideoTile key={ 'pip-' + camera.id } video={ camera } className="octane-video-window__tile--pip" showLabel={ false } />) }
+                                    </div> }
+
+                                <div className="octane-video-window__controls">
+                                    <button
+                                        className="octane-video-window__btn"
+                                        type="button"
+                                        onClick={ onFullscreen }
+                                        title="Tela cheia">
+                                        ⛶ Tela cheia
+                                    </button>
+                                    <VolumeControl />
+                                </div>
+                            </div>
+                        </OctaneCardContentView>
+                    </OctaneCardView>
+                );
+            }) }
+        </>
     );
 };
