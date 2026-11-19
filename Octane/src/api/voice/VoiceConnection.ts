@@ -1,4 +1,4 @@
-import { LocalParticipant, ParticipantEvent, RemoteAudioTrack, RemoteParticipant, Room, RoomEvent, Track, VideoPresets } from 'livekit-client';
+import { LocalParticipant, ParticipantEvent, RemoteAudioTrack, RemoteParticipant, Room, RoomEvent, Track, VideoPresets, VideoQuality } from 'livekit-client';
 import { useVoiceStore } from '../../state/voiceStore';
 
 /**
@@ -38,7 +38,10 @@ class VoiceConnection
         // LiveKit é 640x480 @ 500kbps — borrado em monitores 4K).
         const room = new Room({
             dynacast: false,
-            adaptiveStream: false,
+            // adaptiveStream: quem recebe pede a camada compatível com o tamanho
+            // da janela (economiza banda/PC fraco); qualidade manual/fullscreen
+            // sobrepõe via publication.setVideoQuality.
+            adaptiveStream: true,
             videoCaptureDefaults: { resolution: VideoPresets.h1080 },
             publishDefaults: { videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 } },
         });
@@ -328,13 +331,15 @@ class VoiceConnection
     }
 
     /** Registers/updates a video tile in the transmission window. */
-    private _upsertVideo(track: Track, identity: string, source: 'camera' | 'screen', local: boolean): void
+    private _upsertVideo(track: Track, identity: string, source: 'camera' | 'screen', local: boolean, publication?: unknown): void
     {
         const streamTrack = (track as unknown as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack;
 
         if(!streamTrack) return;
 
-        useVoiceStore.getState().addVideo({ id: identity + ':' + source, identity, source, track: streamTrack, local });
+        const qualityPublication = publication as { setVideoQuality?: (quality: VideoQuality) => void } | undefined;
+
+        useVoiceStore.getState().addVideo({ id: identity + ':' + source, identity, source, track: streamTrack, local, publication: qualityPublication ?? null });
 
         console.log('[Octane] [Voice] vídeo na janela:', identity, source, local ? '(local)' : '(remoto)');
     }
@@ -359,7 +364,7 @@ class VoiceConnection
         room.on(RoomEvent.ParticipantConnected, () => this._refreshRemoteCount());
         room.on(RoomEvent.ParticipantDisconnected, () => this._refreshRemoteCount());
 
-        room.on(RoomEvent.TrackSubscribed, (track: Track, _publication: unknown, participant: RemoteParticipant) =>
+        room.on(RoomEvent.TrackSubscribed, (track: Track, publication: unknown, participant: RemoteParticipant) =>
         {
             console.log('[Octane] [Voice] track remoto recebido:', track.source, track.kind);
 
@@ -376,11 +381,11 @@ class VoiceConnection
             }
             else if(track.source === Track.Source.Camera)
             {
-                this._upsertVideo(track, participant.identity, 'camera', false);
+                this._upsertVideo(track, participant.identity, 'camera', false, publication);
             }
             else if(track.source === Track.Source.ScreenShare)
             {
-                this._upsertVideo(track, participant.identity, 'screen', false);
+                this._upsertVideo(track, participant.identity, 'screen', false, publication);
             }
         });
 
@@ -410,7 +415,7 @@ class VoiceConnection
 
         room.on(RoomEvent.TrackUnmuted, (publication: { source?: Track.Source }, participant: RemoteParticipant) =>
         {
-            if(publication?.source === Track.Source.Camera) this._upsertVideo((publication as { track?: Track }).track, participant.identity, 'camera', false);
+            if(publication?.source === Track.Source.Camera) this._upsertVideo((publication as { track?: Track }).track, participant.identity, 'camera', false, publication);
         });
 
         room.on(RoomEvent.Disconnected, () =>
@@ -428,15 +433,15 @@ class VoiceConnection
 
         for(const participant of Array.from(room.remoteParticipants.values()))
         {
-            participant.on(ParticipantEvent.TrackSubscribed, (track: Track) =>
+            participant.on(ParticipantEvent.TrackSubscribed, (track: Track, publication: unknown) =>
             {
                 if(track.source === Track.Source.Microphone)
                 {
                     track.attach();
                     this.refreshSpatialVolume(participant.identity);
                 }
-                else if(track.source === Track.Source.Camera) this._upsertVideo(track, participant.identity, 'camera', false);
-                else if(track.source === Track.Source.ScreenShare) this._upsertVideo(track, participant.identity, 'screen', false);
+                else if(track.source === Track.Source.Camera) this._upsertVideo(track, participant.identity, 'camera', false, publication);
+                else if(track.source === Track.Source.ScreenShare) this._upsertVideo(track, participant.identity, 'screen', false, publication);
             });
 
             participant.on(ParticipantEvent.TrackUnsubscribed, (track: Track) =>

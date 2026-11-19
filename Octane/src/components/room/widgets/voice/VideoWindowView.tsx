@@ -1,9 +1,66 @@
-import { FC, useCallback, useEffect, useRef } from 'react';
+import { FC, useCallback, useEffect, useRef, useState } from 'react';
+import { VideoQuality } from 'livekit-client';
 import { DraggableWindowPosition, OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../../../common';
 import { useVoiceStore, VoiceVideo } from '../../../../state/voiceStore';
 import { GetRoomSession } from '../../../../api';
 import { voiceConnection } from '../../../../api/voice/VoiceConnection';
 import '../../../../css/room/VoiceWidget.css';
+
+type QualityChoice = 'auto' | 'low' | 'medium' | 'high';
+
+const QUALITY_VALUES: Record<QualityChoice, VideoQuality> = {
+    auto: VideoQuality.HIGH, // auto = teto HIGH, adaptiveStream ajusta ao tamanho da janela
+    low: VideoQuality.LOW,
+    medium: VideoQuality.MEDIUM,
+    high: VideoQuality.HIGH,
+};
+
+/** Seletor de qualidade (estilo YouTube) para o stream remoto. Em tela cheia força a máxima. */
+const QualityControl: FC<{ video: VoiceVideo; stageEl: HTMLDivElement | null }> = ({ video, stageEl }) =>
+{
+    const [ choice, setChoice ] = useState<QualityChoice>('auto');
+    const choiceRef = useRef<QualityChoice>('auto');
+
+    const apply = useCallback((next: QualityChoice) =>
+    {
+        video.publication?.setVideoQuality?.(QUALITY_VALUES[next]);
+    }, [ video ]);
+
+    const onChoice = useCallback((event: React.ChangeEvent<HTMLSelectElement>) =>
+    {
+        const next = event.target.value as QualityChoice;
+
+        choiceRef.current = next;
+        setChoice(next);
+        apply(next);
+    }, [ apply ]);
+
+    // Em tela cheia o stream vai na melhor camada possível; ao sair, volta ao escolhido.
+    useEffect(() =>
+    {
+        const onFullscreenChange = () =>
+        {
+            if(document.fullscreenElement && stageEl && document.fullscreenElement === stageEl) apply('high');
+            else if(!document.fullscreenElement) apply(choiceRef.current);
+        };
+
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+
+        return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+    }, [ apply, stageEl ]);
+
+    return (
+        <label className="octane-video-window__quality" title="Qualidade do stream (Auto segue o tamanho da janela e a rede)">
+            Qualidade
+            <select value={ choice } onChange={ onChoice } disabled={ !video.publication?.setVideoQuality }>
+                <option value="auto">Auto</option>
+                <option value="low">Baixa</option>
+                <option value="medium">Média</option>
+                <option value="high">Alta (máxima)</option>
+            </select>
+        </label>
+    );
+};
 
 /** Nome de exibição do participante ("Você" para o próprio). */
 const displayName = (video: VoiceVideo): string =>
@@ -123,17 +180,15 @@ export const CameraWindowView: FC<{}> = () =>
  */
 export const ScreenWindowView: FC<{}> = () =>
 {
-    const containerRef = useRef<HTMLDivElement>(null);
+    const [ stageEls, setStageEls ] = useState<Record<string, HTMLDivElement | null>>({});
 
     const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
 
     const screens = videos.filter((video) => video.source === 'screen');
     const cameras = videos.filter((video) => video.source === 'camera');
 
-    const onFullscreen = useCallback(() =>
+    const toggleFullscreen = useCallback((element: HTMLElement | null | undefined) =>
     {
-        const element = containerRef.current;
-
         if(!element) return;
 
         if(document.fullscreenElement)
@@ -169,7 +224,9 @@ export const ScreenWindowView: FC<{}> = () =>
                             headerText={ 'Transmissão – ' + displayName(video) }
                             onCloseClick={ () => setWindowHidden(video.id, true) } />
                         <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
-                            <div ref={ containerRef } className="octane-video-window__stage">
+                            <div
+                                ref={ (element) => setStageEls((current) => ({ ...current, [ video.id ]: element })) }
+                                className="octane-video-window__stage">
                                 <div className="octane-video-window__grid octane-video-window__grid--single">
                                     <VideoTile video={ video } />
                                 </div>
@@ -184,10 +241,11 @@ export const ScreenWindowView: FC<{}> = () =>
                                     <button
                                         className="octane-video-window__btn"
                                         type="button"
-                                        onClick={ onFullscreen }
+                                        onClick={ () => toggleFullscreen(stageEls[video.id]) }
                                         title="Tela cheia">
                                         ⛶ Tela cheia
                                     </button>
+                                    <QualityControl video={ video } stageEl={ stageEls[video.id] ?? null } />
                                     <VolumeControl />
                                 </div>
                             </div>

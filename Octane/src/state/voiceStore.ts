@@ -24,6 +24,8 @@ export interface VoiceVideo
     track: MediaStreamTrack;
     /** True when the track is our own local publish (no audio, show "Você"). */
     local: boolean;
+    /** RemoteTrackPublication do LiveKit (controle de qualidade no receptor). */
+    publication?: { setVideoQuality?: (quality: unknown) => void } | null;
 }
 
 /**
