@@ -39,8 +39,8 @@ class VoiceConnection
         const room = new Room({
             dynacast: false,
             adaptiveStream: false,
-            videoCaptureDefaults: { resolution: VideoPresets.q1080 },
-            videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
+            videoCaptureDefaults: { resolution: VideoPresets.h1080 },
+            publishDefaults: { videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 } },
         });
 
         // sem isto o singleton nunca tem a referência da sala e todo
@@ -196,7 +196,7 @@ class VoiceConnection
             console.log('[Octane] [Voice] setScreenShareEnabled(' + enabled + ') — abrindo seletor do navegador…');
             await participant.setScreenShareEnabled(
                 enabled,
-                { audio: true, resolution: VideoPresets.q2160 },
+                { audio: true, resolution: VideoPresets.h2160 },
                 { videoEncoding: { maxBitrate: 12_000_000, maxFramerate: 30 } });
             console.log('[Octane] [Voice] tela ' + (enabled ? 'COMPARTILHADA' : 'PARADA'));
         }
