@@ -77,3 +77,7 @@ Deploy standalone de um hotel Habbo (Polaris Emulator + cliente Octane) no EasyP
 - Abrir floor plan: botão "Planta da sala" no room tools (dono da sala) ou comando `:floor`.
 - Abrir editor de zonas: engrenagem de voz → "Zonas de áudio…" (admin) OU botão "Zonas de áudio…" dentro do Floor Plan Editor.
 - Regra sem zonas: todos a 100% (sala inteira), implementada em useVoiceZonesSpatial.
+- Editor de zonas (e44c56c60): janela copiada do Floor Plan Editor (OctaneCardView 662x600 + octane-floorplan-window + fp-banner/fp-panels/fp-footer), grade isométrica 2:1 no ângulo do jogo, móveis marcados com tooltip (Room Engine → FLOOR objects + FURNITURE_TYPE_ID + getFloorItemData().name), tiles bloqueados escuros, volumes por sala no painel direito.
+- **NUNCA montar `useVoice()` em mais de um componente**: ele registra handlers de VoiceTokenEvent; dois mounts = connect() duplo = LiveKit quebrado ("sem sala LiveKit conectada (participant=null)" em todo mic/cam). Componentes que só precisam ENVIAR zonas usam `src/api/voice/saveVoiceZones.ts` (SendMessageComposer direto, sem handlers).
+- Sliders: usar `event.target.value` (NÃO `event.currentTarget` — React Compiler memoiza e o currentTarget vem null em evento defasado → crash "Cannot read properties of null (reading 'value')").
+- Rebuild do compose RESETA ranks do seed (users re-importados): reposicionar rank 7 de teste no banco após cada deploy.
