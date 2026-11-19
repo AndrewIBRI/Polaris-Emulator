@@ -75,9 +75,12 @@ const displayName = (video: VoiceVideo): string =>
 };
 
 /** Renders one video MediaStreamTrack in a <video> element. */
-const VideoTile: FC<{ video: VoiceVideo; className?: string; showLabel?: boolean }> = ({ video, className, showLabel = true }) =>
+const VideoTile: FC<{ video: VoiceVideo; className?: string; showLabel?: boolean; onMetadata?: (element: HTMLVideoElement) => void }> = ({ video, className, showLabel = true, onMetadata }) =>
 {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const metadataRef = useRef(onMetadata);
+
+    metadataRef.current = onMetadata;
 
     useEffect(() =>
     {
@@ -104,7 +107,8 @@ const VideoTile: FC<{ video: VoiceVideo; className?: string; showLabel?: boolean
                 className="octane-video-window__video"
                 autoPlay
                 muted={ video.local }
-                playsInline />
+                playsInline
+                onLoadedMetadata={ () => metadataRef.current?.(videoRef.current as HTMLVideoElement) } />
             { showLabel &&
                 <span className="octane-video-window__label">
                     { displayName(video) } · { video.source === 'camera' ? 'Câmera' : 'Tela' }
@@ -146,10 +150,50 @@ const VolumeControl: FC<{}> = () =>
  */
 export const CameraWindowView: FC<{}> = () =>
 {
+    const gridRef = useRef<HTMLDivElement>(null);
+    // Proporção real do stream (0 até o vídeo informar); a janela se ajusta a ela.
+    const [ aspect, setAspect ] = useState(0);
+
     const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
 
     const screens = videos.filter((video) => video.source === 'screen');
     const cameras = videos.filter((video) => video.source === 'camera');
+
+    // A janela acompanha a proporção REAL do vídeo: altura = largura / aspecto,
+    // então o vídeo encosta em TODAS as bordas (sem barras pretas). Se o
+    // usuário mudar a largura, o ResizeObserver reajusta a altura.
+    useEffect(() =>
+    {
+        const grid = gridRef.current;
+
+        if(!grid || !aspect) return;
+
+        const windowEl = grid.closest('.octane-video-window--camera') as HTMLElement | null;
+
+        if(!windowEl) return;
+
+        const fit = () =>
+        {
+            const width = grid.clientWidth;
+
+            if(!width) return;
+
+            const extra = windowEl.offsetHeight - grid.clientHeight; // header + paddings + controles
+
+            windowEl.style.height = Math.round(width / aspect + Math.max(extra, 0)) + 'px';
+        };
+
+        const observer = new ResizeObserver(fit);
+
+        observer.observe(grid);
+
+        return () => observer.disconnect();
+    }, [ aspect ]);
+
+    const onCameraMetadata = useCallback((element: HTMLVideoElement) =>
+    {
+        if(element.videoWidth > 0 && element.videoHeight > 0) setAspect(element.videoWidth / element.videoHeight);
+    }, []);
 
     if(!cameras.length || screens.length || hiddenWindows.has('camera')) return null;
 
@@ -165,9 +209,9 @@ export const CameraWindowView: FC<{}> = () =>
                 headerText="Câmera"
                 onCloseClick={ () => setWindowHidden('camera', true) } />
             <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
-                <div className="octane-video-window__grid">
-                    { cameras.map((video) =>
-                        <VideoTile key={ video.id } video={ video } />) }
+                <div ref={ gridRef } className="octane-video-window__grid">
+                    { cameras.map((video, index) =>
+                        <VideoTile key={ video.id } video={ video } onMetadata={ index === 0 ? onCameraMetadata : undefined } />) }
                 </div>
             </OctaneCardContentView>
         </OctaneCardView>
