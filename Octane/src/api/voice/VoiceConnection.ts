@@ -1,4 +1,4 @@
-import { LocalParticipant, ParticipantEvent, RemoteAudioTrack, RemoteParticipant, Room, RoomEvent, Track } from 'livekit-client';
+import { LocalParticipant, ParticipantEvent, RemoteAudioTrack, RemoteParticipant, Room, RoomEvent, Track, VideoPresets } from 'livekit-client';
 import { useVoiceStore } from '../../state/voiceStore';
 
 /**
@@ -34,7 +34,14 @@ class VoiceConnection
 
         this.disconnect();
 
-        const room = new Room({ dynacast: false, adaptiveStream: false });
+        // Qualidade máxima: captura até 1080p e encoding generoso (padrão
+        // LiveKit é 640x480 @ 500kbps — borrado em monitores 4K).
+        const room = new Room({
+            dynacast: false,
+            adaptiveStream: false,
+            videoCaptureDefaults: { resolution: VideoPresets.q1080 },
+            videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
+        });
 
         // sem isto o singleton nunca tem a referência da sala e todo
         // mic/câmera/tela cai no early-return silencioso de _localParticipant()
@@ -187,7 +194,10 @@ class VoiceConnection
         try
         {
             console.log('[Octane] [Voice] setScreenShareEnabled(' + enabled + ') — abrindo seletor do navegador…');
-            await participant.setScreenShareEnabled(enabled, { audio: true });
+            await participant.setScreenShareEnabled(
+                enabled,
+                { audio: true, resolution: VideoPresets.q2160 },
+                { videoEncoding: { maxBitrate: 12_000_000, maxFramerate: 30 } });
             console.log('[Octane] [Voice] tela ' + (enabled ? 'COMPARTILHADA' : 'PARADA'));
         }
         catch (error)

@@ -198,9 +198,13 @@
     width: min(230px, 55vw);
 }
 
+/* O vídeo define o tamanho do tile (proporção real do stream): nunca é
+   cortado — apenas reduzido para caber 100% dentro das bordas da janela. */
 .octane-video-window__grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
     gap: 6px;
     padding: 6px;
     background: #101014;
@@ -209,7 +213,6 @@
 }
 
 .octane-video-window--camera .octane-video-window__grid {
-    grid-template-columns: 1fr;
     max-height: min(40vh, 260px);
     padding: 4px;
 }
@@ -222,23 +225,15 @@
     min-height: 0;
 }
 
-/* janela de transmissão: UM vídeo por janela, sempre ajustado (contain) —
-   nunca cortado, independentemente do tamanho da janela */
+/* janela de transmissão: UM vídeo por janela, centralizado e sempre
+   completo — o tile acompanha a proporção real do stream */
 .octane-video-window__grid--single {
-    display: flex;
-    min-height: 0;
+    max-height: none;
     overflow: hidden;
 }
 
-.octane-video-window__grid--single .octane-video-window__tile {
-    flex: 1;
-    min-width: 0;
-    min-height: 220px;
-    aspect-ratio: auto;
-}
-
 .octane-video-window__grid--single .octane-video-window__video {
-    object-fit: contain;
+    max-height: min(60vh, 520px);
 }
 
 .octane-video-window__stage:fullscreen {
@@ -273,6 +268,20 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
+.octane-video-window__tile--pip .octane-video-window__video {
+    width: 100%;
+    max-height: none;
+}
+
+/* fullscreen: o vídeo ocupa a área útil inteira (caber 100%, sem cortar) */
+.octane-video-window__stage:fullscreen .octane-video-window__video {
+    max-height: 100vh;
+}
+
+.octane-video-window__stage:fullscreen .octane-video-window__grid--single {
+    height: 100%;
+}
+
 :fullscreen .octane-video-window__controls {
     position: absolute;
     left: 0;
@@ -282,17 +291,24 @@
 
 .octane-video-window__tile {
     position: relative;
+    display: inline-flex;
+    max-width: 100%;
     border-radius: 4px;
     overflow: hidden;
     background: #000;
-    aspect-ratio: 16 / 9;
 }
 
 .octane-video-window__video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
     display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: min(60vh, 420px);
+    object-fit: contain;
+}
+
+.octane-video-window--camera .octane-video-window__video {
+    max-height: min(40vh, 260px);
 }
 
 .octane-video-window__label {
