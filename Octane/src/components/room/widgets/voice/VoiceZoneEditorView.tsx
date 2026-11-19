@@ -61,7 +61,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const [ draft, setDraft ] = useState<VoiceZoneArea[]>([]);
     const [ selected, setSelected ] = useState<number>(-1);
-    const [ factors, setFactors ] = useState({ same: 100, other: 10, outside: 35 });
+    const [ factors, setFactors ] = useState({ same: 100, other: 0, outside: 1 });
     const drawingRef = useRef<{ startX: number; startY: number; index: number } | null>(null);
 
     const resetDraft = useCallback(() =>
@@ -210,19 +210,19 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                         </div>
                                     ) }
                                     <div className="voice-zone-editor-factors">
-                                        <label>
+                                        <label title="Vocês dois dentro da MESMA zona — ou ambos fora de qualquer zona (área aberta)">
                                             Na mesma zona
                                             <input type="range" min={ 0 } max={ 100 } value={ factors.same }
                                                 onChange={ (event) => setFactors((current) => ({ ...current, same: Number(event.target.value) })) } />
                                             <b>{ factors.same }%</b>
                                         </label>
-                                        <label>
+                                        <label title="Cada um numa zona DIFERENTE (cômodos distintos)">
                                             Em outra zona
                                             <input type="range" min={ 0 } max={ 100 } value={ factors.other }
                                                 onChange={ (event) => setFactors((current) => ({ ...current, other: Number(event.target.value) })) } />
                                             <b>{ factors.other }%</b>
                                         </label>
-                                        <label>
+                                        <label title="Um numa zona e o outro na área aberta (fora de qualquer zona)">
                                             Fora de zona
                                             <input type="range" min={ 0 } max={ 100 } value={ factors.outside }
                                                 onChange={ (event) => setFactors((current) => ({ ...current, outside: Number(event.target.value) })) } />

@@ -8,8 +8,8 @@ const SPATIAL_TICK_MS = 500;
 
 /** Default volume levels: same zone = full, other zone = bleed, outside = muffled. */
 const DEFAULT_SAME = 100;
-const DEFAULT_OTHER = 10;
-const DEFAULT_OUTSIDE = 35;
+const DEFAULT_OTHER = 0;
+const DEFAULT_OUTSIDE = 1;
 const FACTOR_FULL = 1;
 
 interface UserTile
@@ -92,16 +92,19 @@ const applySpatial = () =>
         // Identidade LiveKit do usuário (ver voiceServer/token).
         const identity = `user-${user.webID}`;
 
-        if(myZone === -1)
-        {
-            voiceConnection.setSpatialVolume(identity, factors.outside / 100);
-        }
-        else
-        {
-            const zone = zoneOf(state.zones, user.x, user.y);
+        const zone = zoneOf(state.zones, user.x, user.y);
 
-            voiceConnection.setSpatialVolume(identity, zone === myZone ? factors.same / 100 : factors.other / 100);
-        }
+        // Semântica dos fatores:
+        // - "mesma zona": eu e ele na MESMA zona (inclui ambos fora de zona — área aberta comum).
+        // - "outra zona": cada um numa zona diferente (cômodos distintos).
+        // - "fora de zona": um dos dois está em NENHUMA zona (área aberta) e o outro está numa zona.
+        let factor: number;
+
+        if(myZone === -1 && zone === -1) factor = factors.same;
+        else if(myZone === -1 || zone === -1) factor = factors.outside;
+        else factor = (zone === myZone) ? factors.same : factors.other;
+
+        voiceConnection.setSpatialVolume(identity, factor / 100);
 
         applied.add(identity);
     }

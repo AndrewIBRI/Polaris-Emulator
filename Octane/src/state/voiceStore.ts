@@ -171,7 +171,7 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     zones: [],
     canEditZones: false,
     zoneEditorOpen: false,
-    zoneFactors: { same: 100, other: 10, outside: 35 },
+    zoneFactors: { same: 100, other: 0, outside: 1 },
     spatialApplied: new Set<string>(),
     zoneTilemap: '',
     roomName: '',

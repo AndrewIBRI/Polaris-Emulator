@@ -2064,10 +2064,10 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     /** Lazily loaded audio zones of this room (null until first requested). */
     private List<polaris.hotel.voice.VoiceZone> voiceZones;
 
-    /** Spatial volume factors (percent) — defaults are the classic values. */
+    /** Spatial volume factors (percent) — other zone mutes, open area bleeds 1%. */
     private int voiceSameFactor = 100;
-    private int voiceOtherFactor = 10;
-    private int voiceOutsideFactor = 35;
+    private int voiceOtherFactor = 0;
+    private int voiceOutsideFactor = 1;
     private boolean voiceSettingsLoaded = false;
 
     /**
