@@ -1,6 +1,6 @@
 import { FC, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { GetRoomEngine, GetSessionDataManager, RoomObjectCategory, RoomObjectVariable } from '@octane/renderer';
+import { GetRoomEngine, GetSessionDataManager } from '@octane/renderer';
 import { VoiceZoneArea } from '../../../../state/voiceStore';
 import { GetRoomSession } from '../../../../api';
 
@@ -44,18 +44,12 @@ export const collectFurni = (): FurniMarker[] =>
 
     const byTile = new Map<string, string[]>();
 
-    let dbgObjCount = -1;
-    let dbgError = '';
-
     try
     {
         const engine = GetRoomEngine();
         const dataManager = GetSessionDataManager();
-        const furniData = engine.getRoomFurnitureData(session.roomId) || [];
 
-        dbgObjCount = furniData.length;
-
-        for(const item of furniData)
+        for(const item of engine.getRoomFurnitureData(session.roomId) || [])
         {
             const name = dataManager.getFloorItemData(item.typeId)?.name || `#${item.typeId}`;
             const key = `${ item.x },${ item.y }`;
@@ -65,32 +59,10 @@ export const collectFurni = (): FurniMarker[] =>
             byTile.set(key, list);
         }
     }
-    catch(error)
+    catch
     {
-        dbgError = String(error).slice(0, 120);
-
         // engine indisponível: segue sem móveis
     }
-
-    let dbgCats: Record<number, number> = {};
-    let dbgActive = -1;
-
-    try
-    {
-        const engine = GetRoomEngine();
-
-        const activeId = (engine as unknown as { activeRoomId?: number }).activeRoomId;
-
-        for(const cat of [ 0, 10, 20, 30, 40, 50, 100, 200, 999 ]) dbgCats[cat] = (engine.getRoomObjects(activeId, cat) || []).length;
-
-        dbgActive = activeId;
-    }
-    catch(error)
-    {
-        dbgError += ' cats:' + String(error).slice(0, 80);
-    }
-
-    (window as unknown as { __zDbg?: unknown }).__zDbg = { session: !!session, roomId: session?.roomId, objCount: dbgObjCount, error: dbgError, markers: byTile.size, cats: dbgCats, activeId: dbgActive };
 
     const markers: FurniMarker[] = [];
 
