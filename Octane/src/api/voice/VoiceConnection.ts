@@ -53,9 +53,20 @@ class VoiceConnection
             useVoiceStore.getState().setConnected(true);
             useVoiceStore.getState().setConnecting(false);
             useVoiceStore.getState().setError('');
-            useVoiceStore.getState().setMicOn(false);
-            useVoiceStore.getState().setCamOn(false);
-            useVoiceStore.getState().setScreenOn(false);
+
+            // Toggles clicados antes de conectar: aplica agora.
+            const pending = useVoiceStore.getState();
+            const wantMic = pending.micOn;
+            const wantCam = pending.camOn;
+            const wantScreen = pending.screenOn;
+
+            useVoiceStore.getState().setMicOn(wantMic);
+            useVoiceStore.getState().setCamOn(wantCam);
+            useVoiceStore.getState().setScreenOn(wantScreen);
+
+            if(wantMic) this.setMicEnabled(true);
+            if(wantCam) this.setCameraEnabled(true);
+            if(wantScreen) this.setScreenShareEnabled(true);
             this._refreshRemoteCount();
             this.refreshDevices();
         }

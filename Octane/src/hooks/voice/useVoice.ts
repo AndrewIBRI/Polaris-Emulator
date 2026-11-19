@@ -44,9 +44,10 @@ export const useVoice = () =>
     {
         const { micOn, connected } = useVoiceStore.getState();
 
+        // Sem conexão ainda? Guarda a intenção: aplica ao conectar.
         if(!connected)
         {
-            console.warn('[Octane] [Voice] toggleMic ignorado: voz NÃO está conectada');
+            useVoiceStore.getState().setMicOn(!micOn);
 
             return;
         }
@@ -58,7 +59,13 @@ export const useVoice = () =>
     {
         const { camOn, connected } = useVoiceStore.getState();
 
-        if(!connected) return;
+        // Sem conexão ainda? Guarda a intenção: aplica ao conectar.
+        if(!connected)
+        {
+            useVoiceStore.getState().setCamOn(!camOn);
+
+            return;
+        }
 
         voiceConnection.setCameraEnabled(!camOn);
     }, []);
@@ -67,7 +74,13 @@ export const useVoice = () =>
     {
         const { screenOn, connected } = useVoiceStore.getState();
 
-        if(!connected) return;
+        // Sem conexão ainda? Guarda a intenção: aplica ao conectar.
+        if(!connected)
+        {
+            useVoiceStore.getState().setScreenOn(!screenOn);
+
+            return;
+        }
 
         voiceConnection.setScreenShareEnabled(!screenOn);
     }, []);
