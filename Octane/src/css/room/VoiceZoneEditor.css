@@ -8,6 +8,14 @@
     align-items: center;
     justify-content: center;
     z-index: 10000;
+    /* container de widgets é pointer-events:none — o modal precisa reativar para receber cliques */
+    pointer-events: auto;
+}
+
+/* A janela (draggable-window) nasce com z-index 402 — ABAIXO do backdrop (10000),
+   que então engole todos os cliques da janela. Sobir a janela acima do backdrop. */
+.draggable-window:has(> .voice-zone-editor-window) {
+    z-index: 10001;
 }
 
 .voice-zone-editor {

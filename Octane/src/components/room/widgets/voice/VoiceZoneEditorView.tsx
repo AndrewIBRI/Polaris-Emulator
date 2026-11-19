@@ -144,7 +144,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
             <OctaneCardView
                 uniqueKey="voice-zone-editor"
                 className="w-[662px] h-[600px] min-w-[662px] min-h-[600px] max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)]"
-                classNames={['octane-floorplan-window']}
+                classNames={['octane-floorplan-window', 'voice-zone-editor-window']}
                 theme="primary-slim"
             >
                 <OctaneCardHeaderView headerText="Zonas de áudio" onCloseClick={ close } />
