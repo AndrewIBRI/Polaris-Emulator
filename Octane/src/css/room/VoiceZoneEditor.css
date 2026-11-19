@@ -12,10 +12,11 @@
     pointer-events: auto;
 }
 
-/* A janela (draggable-window) nasce com z-index 402 — ABAIXO do backdrop (10000),
-   que então engole todos os cliques da janela. Sobir a janela acima do backdrop. */
+/* A janela (draggable-window) recebe z-index INLINE (402, incrementado pelo gerenciador
+   de janelas) — inline vence qualquer CSS sem !important. O backdrop fica em 10000,
+   então a janela precisa vencê-lo obrigatoriamente. */
 .draggable-window:has(> .voice-zone-editor-window) {
-    z-index: 10001;
+    z-index: 10001 !important;
 }
 
 .voice-zone-editor {

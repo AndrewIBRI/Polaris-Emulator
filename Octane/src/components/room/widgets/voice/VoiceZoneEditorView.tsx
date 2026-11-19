@@ -139,8 +139,16 @@ export const VoiceZoneEditorView: FC<{}> = () =>
         setZoneEditorOpen(false);
     };
 
+    const closeFromBackdrop = (event: React.MouseEvent) =>
+    {
+        // só fecha quando o clique atinge o próprio backdrop (não a janela/children)
+        if(event.target !== event.currentTarget) return;
+
+        close();
+    };
+
     return (
-        <div className="voice-zone-editor-overlay">
+        <div className="voice-zone-editor-overlay" onMouseDown={ closeFromBackdrop }>
             <OctaneCardView
                 uniqueKey="voice-zone-editor"
                 className="w-[662px] h-[600px] min-w-[662px] min-h-[600px] max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)]"
