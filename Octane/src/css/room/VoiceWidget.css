@@ -189,17 +189,21 @@
 
 /* ---- Janelas de vídeo: câmera (pop-up) e transmissão (tela) ---- */
 
-/* posições/tamanhos relativos à tela, não fixos */
+/* posições/tamanhos relativos à tela, não fixos. Altura padrão definida para o
+   conteúdo (h-full) funcionar; redimensionar a janela muda AMBOS e o vídeo
+   acompanha (contain, sem cortar). */
 .octane-video-window--screen {
     width: min(680px, 86vw);
+    height: min(440px, 62vh);
 }
 
 .octane-video-window--camera {
-    width: min(230px, 55vw);
+    width: min(280px, 55vw);
+    height: min(320px, 55vh);
 }
 
-/* O vídeo define o tamanho do tile (proporção real do stream): nunca é
-   cortado — apenas reduzido para caber 100% dentro das bordas da janela. */
+/* O vídeo preenche a área da janela (contain): cresce/encolhe com a janela,
+   nunca corta — barras pretas nas bordas quando a proporção difere. */
 .octane-video-window__grid {
     display: flex;
     flex-wrap: wrap;
@@ -207,14 +211,10 @@
     justify-content: center;
     gap: 6px;
     padding: 6px;
-    background: #101014;
-    max-height: min(60vh, 420px);
-    overflow: auto;
-}
-
-.octane-video-window--camera .octane-video-window__grid {
-    max-height: min(40vh, 260px);
-    padding: 4px;
+    background: #000;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 
 /* fullscreen da transmissão: stage ocupa a tela toda, grid em cima, PiP por cima */
@@ -223,17 +223,12 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
 }
 
-/* janela de transmissão: UM vídeo por janela, centralizado e sempre
-   completo — o tile acompanha a proporção real do stream */
+/* janela de transmissão: UM vídeo por janela */
 .octane-video-window__grid--single {
-    max-height: none;
-    overflow: hidden;
-}
-
-.octane-video-window__grid--single .octane-video-window__video {
-    max-height: min(60vh, 520px);
+    flex-wrap: nowrap;
 }
 
 .octane-video-window__stage:fullscreen {
@@ -262,24 +257,17 @@
 }
 
 .octane-video-window__tile--pip {
+    flex: 0 0 auto;
     width: min(180px, 18vw);
+    height: auto;
     border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
 .octane-video-window__tile--pip .octane-video-window__video {
-    width: 100%;
-    max-height: none;
-}
-
-/* fullscreen: o vídeo ocupa a área útil inteira (caber 100%, sem cortar) */
-.octane-video-window__stage:fullscreen .octane-video-window__video {
-    max-height: 100vh;
-}
-
-.octane-video-window__stage:fullscreen .octane-video-window__grid--single {
-    height: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
 }
 
 :fullscreen .octane-video-window__controls {
@@ -291,8 +279,12 @@
 
 .octane-video-window__tile {
     position: relative;
-    display: inline-flex;
-    max-width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 220px;
+    min-width: 0;
+    min-height: 0;
     border-radius: 4px;
     overflow: hidden;
     background: #000;
@@ -300,15 +292,9 @@
 
 .octane-video-window__video {
     display: block;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: min(60vh, 420px);
+    width: 100%;
+    height: 100%;
     object-fit: contain;
-}
-
-.octane-video-window--camera .octane-video-window__video {
-    max-height: min(40vh, 260px);
 }
 
 .octane-video-window__label {

@@ -16,7 +16,7 @@ const QUALITY_VALUES: Record<QualityChoice, VideoQuality> = {
 };
 
 /** Seletor de qualidade (estilo YouTube) para o stream remoto. Em tela cheia força a máxima. */
-const QualityControl: FC<{ video: VoiceVideo; stageEl: HTMLDivElement | null }> = ({ video, stageEl }) =>
+const QualityControl: FC<{ video: VoiceVideo; getStageEl: () => HTMLDivElement | null }> = ({ video, getStageEl }) =>
 {
     const [ choice, setChoice ] = useState<QualityChoice>('auto');
     const choiceRef = useRef<QualityChoice>('auto');
@@ -40,14 +40,14 @@ const QualityControl: FC<{ video: VoiceVideo; stageEl: HTMLDivElement | null }> 
     {
         const onFullscreenChange = () =>
         {
-            if(document.fullscreenElement && stageEl && document.fullscreenElement === stageEl) apply('high');
+            if(document.fullscreenElement && document.fullscreenElement === getStageEl()) apply('high');
             else if(!document.fullscreenElement) apply(choiceRef.current);
         };
 
         document.addEventListener('fullscreenchange', onFullscreenChange);
 
         return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-    }, [ apply, stageEl ]);
+    }, [ apply, getStageEl ]);
 
     return (
         <label className="octane-video-window__quality" title="Qualidade do stream (Auto segue o tamanho da janela e a rede)">
@@ -180,7 +180,8 @@ export const CameraWindowView: FC<{}> = () =>
  */
 export const ScreenWindowView: FC<{}> = () =>
 {
-    const [ stageEls, setStageEls ] = useState<Record<string, HTMLDivElement | null>>({});
+    // Refs (sem setState — um setState em callback de ref causa loop infinito / React #185)
+    const stageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
 
@@ -225,7 +226,7 @@ export const ScreenWindowView: FC<{}> = () =>
                             onCloseClick={ () => setWindowHidden(video.id, true) } />
                         <OctaneCardContentView className="bg-[#1b1b1f] relative" overflow="auto">
                             <div
-                                ref={ (element) => setStageEls((current) => ({ ...current, [ video.id ]: element })) }
+                                ref={ (element) => { stageRefs.current[ video.id ] = element; } }
                                 className="octane-video-window__stage">
                                 <div className="octane-video-window__grid octane-video-window__grid--single">
                                     <VideoTile video={ video } />
@@ -241,11 +242,11 @@ export const ScreenWindowView: FC<{}> = () =>
                                     <button
                                         className="octane-video-window__btn"
                                         type="button"
-                                        onClick={ () => toggleFullscreen(stageEls[video.id]) }
+                                        onClick={ () => toggleFullscreen(stageRefs.current[ video.id ]) }
                                         title="Tela cheia">
                                         ⛶ Tela cheia
                                     </button>
-                                    <QualityControl video={ video } stageEl={ stageEls[video.id] ?? null } />
+                                    <QualityControl video={ video } getStageEl={ () => stageRefs.current[ video.id ] ?? null } />
                                     <VolumeControl />
                                 </div>
                             </div>
