@@ -7,24 +7,22 @@ import { saveVoiceZones } from '../../../../api/voice/saveVoiceZones';
 import { VoiceZoneCanvas, loadTileImage, zoneColor } from './VoiceZoneCanvas';
 import '../../../../css/room/VoiceZoneEditor.css';
 
-/** Parses the room's floor model string into tile heights (-1 = blocked / no floor). */
+/** Parses the room's floor model string into tile heights: ONE base36 char per tile ('x' = blocked), like the game does. */
 const parseHeights = (tilemap: string): number[][] =>
 {
     if(!tilemap) return [];
 
     const rows: number[][] = [];
 
-    for(const line of tilemap.split(/\r\n|\r|\n/))
+    for(const line of tilemap.split('\r'))
     {
         if(!line) continue;
 
         const row: number[] = [];
 
-        for(let i = 0; i < line.length; i += 2)
+        for(const char of line)
         {
-            const value = parseInt(line.slice(i, i + 2), 16);
-
-            row.push(Number.isNaN(value) ? -1 : value);
+            row.push((char === 'x' || char === 'X') ? -1 : parseInt(char, 36));
         }
 
         rows.push(row);
