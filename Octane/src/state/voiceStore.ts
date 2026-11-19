@@ -74,6 +74,10 @@ interface VoiceState {
     spatialApplied: Set<string>;
     /** Raw floor heightmap of the current room (for the zone editor grid). */
     zoneTilemap: string;
+    /** Display name of the current room (for the HUD location badge). */
+    roomName: string;
+    /** Index of the zone the user currently stands in, -1 when outside any zone. */
+    currentZone: number;
 
     setUrl: (url: string) => void;
     setToken: (token: string) => void;
@@ -102,6 +106,8 @@ interface VoiceState {
     setZoneEditorOpen: (open: boolean) => void;
     setZoneFactors: (factors: { same: number; other: number; outside: number }) => void;
     setZoneTilemap: (tilemap: string) => void;
+    setRoomName: (roomName: string) => void;
+    setCurrentZone: (currentZone: number) => void;
 }
 
 const STORAGE_KEY = 'octane:voice:auto-mute-on-blur';
@@ -168,6 +174,8 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     zoneFactors: { same: 100, other: 10, outside: 35 },
     spatialApplied: new Set<string>(),
     zoneTilemap: '',
+    roomName: '',
+    currentZone: -1,
 
     addVideo: (video) => set((state) =>
     {
@@ -189,6 +197,8 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     setZoneEditorOpen: (zoneEditorOpen) => set({ zoneEditorOpen }),
     setZoneFactors: (zoneFactors) => set({ zoneFactors }),
     setZoneTilemap: (zoneTilemap) => set({ zoneTilemap }),
+    setRoomName: (roomName) => set({ roomName }),
+    setCurrentZone: (currentZone) => set({ currentZone }),
 
     setError: (error) => set({ error }),
     setDevices: (devices) => set({ devices }),

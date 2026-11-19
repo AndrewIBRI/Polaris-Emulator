@@ -27,6 +27,8 @@ const applySpatial = () =>
     // Sem zonas (ou modo assembleia): todos no mesmo volume.
     if(!state.zones.length || state.assembly)
     {
+        useVoiceStore.setState({ currentZone: -1 });
+
         for(const identity of state.spatialApplied)
         {
             voiceConnection.setSpatialVolume(identity, FACTOR_FULL);
@@ -48,7 +50,10 @@ const applySpatial = () =>
 
         if(!userData || userData.webID <= 0) continue;
 
-        const location = (unit as { location: { x: number; y: number } }).location;
+        // Os objetos de sala expõem a posição por getLocation() (IVector3D), não por propriedade.
+        const location = typeof unit.getLocation === 'function'
+            ? unit.getLocation()
+            : (unit as { location?: { x: number; y: number } }).location;
 
         if(!location) continue;
 
@@ -73,6 +78,10 @@ const applySpatial = () =>
     };
 
     const myZone = zoneOf(state.zones, me.x, me.y);
+
+    // Indicador do HUD: em qual zona estamos agora.
+    useVoiceStore.setState({ currentZone: myZone });
+
     const factors = state.zoneFactors ?? { same: DEFAULT_SAME, other: DEFAULT_OTHER, outside: DEFAULT_OUTSIDE };
     const applied = new Set<string>();
 

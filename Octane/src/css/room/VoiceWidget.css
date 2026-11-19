@@ -177,6 +177,16 @@
     white-space: nowrap;
 }
 
+/* Badge de localização: "nome da sala" ou "nome da sala (nome da zona)". */
+.octane-voice-widget__location {
+    background: rgba(0, 101, 255, 0.22);
+    border-color: rgba(0, 149, 255, 0.55);
+    color: #7fc0ff;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ---- Janelas de vídeo: câmera (pop-up) e transmissão (tela) ---- */
 
 /* posições/tamanhos relativos à tela, não fixos */

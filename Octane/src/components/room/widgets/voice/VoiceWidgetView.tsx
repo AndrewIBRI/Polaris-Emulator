@@ -1,7 +1,10 @@
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
+import { GetGuestRoomResultEvent } from '@octane/renderer';
+import { useMessageEvent } from '../../../../hooks';
 import { classNames } from '../../../../layout';
 import { useVoice } from '../../../../hooks/voice/useVoice';
 import { useVoiceZonesSpatial } from '../../../../hooks/voice/useVoiceZonesSpatial';
+import { GetRoomSession } from '../../../../api';
 import { useVoiceStore } from '../../../../state/voiceStore';
 import '../../../../css/room/VoiceWidget.css';
 
@@ -17,7 +20,25 @@ export const VoiceWidgetView: FC<{}> = (props) =>
     const { requestToken, disconnect, toggleMic, toggleCam, toggleScreen, refreshDevices, setMicDevice, setSpeakerDevice, setVolume } = useVoice();
     useVoiceZonesSpatial();
 
-    const { connected, connecting, micOn, camOn, screenOn, assembly, remoteCount, autoMuteOnBlur, autoMuted, error, devices, micDeviceId, speakerDeviceId, volume, setAutoMuteOnBlur, canEditZones, setZoneEditorOpen } = useVoiceStore();
+    const { connected, connecting, micOn, camOn, screenOn, assembly, remoteCount, autoMuteOnBlur, autoMuted, error, devices, micDeviceId, speakerDeviceId, volume, setAutoMuteOnBlur, canEditZones, setZoneEditorOpen, setRoomName, zones, currentZone, roomName } = useVoiceStore();
+
+    // Nome da sala atual (badge de localização do HUD).
+    useMessageEvent<GetGuestRoomResultEvent>(GetGuestRoomResultEvent, (event) =>
+    {
+        const parser = event.getParser();
+
+        if(!parser.roomEnter) return;
+
+        const session = GetRoomSession();
+
+        if(!session || parser.data.roomId !== session.roomId) return;
+
+        setRoomName(parser.data.roomName || '');
+    });
+
+    const locationLabel = roomName
+        ? (currentZone >= 0 && zones[currentZone] ? `${ roomName } (${ zones[currentZone].name })` : roomName)
+        : null;
 
     const [ menuOpen, setMenuOpen ] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -142,6 +163,10 @@ export const VoiceWidgetView: FC<{}> = (props) =>
                             </button> }
                     </div> }
             </div>
+            { locationLabel &&
+                <div className="octane-voice-widget__assembly octane-voice-widget__location">
+                    { locationLabel }
+                </div> }
             { assembly &&
                 <div className="octane-voice-widget__assembly">
                     Modo assembleia
