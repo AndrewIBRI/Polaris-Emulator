@@ -95,6 +95,30 @@
     gap: 6px;
 }
 
+/* Camada de pintura: mesmo bitmap branco do preview do floor plan, com os marcadores por cima. */
+.voice-zone-paint-layer {
+    position: relative;
+    flex: 0 0 auto;
+    margin: auto;
+}
+
+.voice-zone-paint-canvas {
+    margin: 0 !important;
+    cursor: crosshair;
+}
+
+.voice-zone-furni-dot {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #333;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+    z-index: 2;
+}
+
 /* Marcador de móvel (mesma posição do tile no jogo) */
 .voice-zone-furni {
     fill: rgba(255, 255, 255, 0.85);
