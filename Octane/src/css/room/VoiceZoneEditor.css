@@ -61,6 +61,14 @@
     cursor: crosshair;
 }
 
+/* Marcador de móvel (mesma posição do tile no jogo) */
+.voice-zone-furni {
+    fill: rgba(255, 255, 255, 0.85);
+    stroke: #222;
+    stroke-width: 1;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+
 .voice-zone-cell {
     fill: rgba(255, 255, 255, 0.06);
     stroke: rgba(255, 255, 255, 0.12);

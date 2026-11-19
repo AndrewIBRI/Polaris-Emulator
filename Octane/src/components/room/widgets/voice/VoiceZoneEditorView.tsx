@@ -1,9 +1,15 @@
 import { FC, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { GetRoomEngine, GetSessionDataManager, RoomObjectCategory, RoomObjectVariable } from '@octane/renderer';
 import { useVoiceStore, VoiceZoneArea } from '../../../../state/voiceStore';
 import { useVoice } from '../../../../hooks/voice/useVoice';
+import { GetRoomSession } from '../../../../api';
 import '../../../../css/room/VoiceZoneEditor.css';
 
-const CELL_SIZE = 18;
+// Diamante 2:1 — mesma projeção isométrica do jogo.
+const CELL_W = 36;
+const CELL_H = 18;
+const ORIGIN_X = 200;
+const ORIGIN_Y = 40;
 
 const ZONE_COLORS = [
     '#3ddc84',
@@ -13,6 +19,13 @@ const ZONE_COLORS = [
     '#b980ff',
     '#5bd6d2'
 ];
+
+interface FurniMarker
+{
+    x: number;
+    y: number;
+    name: string;
+}
 
 /** Parses a Nitro floor model string into rows of walkable flags. */
 const parseTilemap = (tilemap: string): boolean[][] =>
@@ -40,7 +53,22 @@ const parseTilemap = (tilemap: string): boolean[][] =>
     return rows;
 };
 
-/** Zone editor with a floor-plan-editor-style top-down grid (admin only). */
+/** Isometric projection of a tile (same angle as the in-game room). */
+const isoPoint = (x: number, y: number): { px: number; py: number } =>
+{
+    return { px: ORIGIN_X + (x - y) * (CELL_W / 2), py: ORIGIN_Y + (x + y) * (CELL_H / 2) };
+};
+
+const diamondPoints = (x: number, y: number): string =>
+{
+    const { px, py } = isoPoint(x, y);
+    const halfW = CELL_W / 2;
+    const halfH = CELL_H / 2;
+
+    return `${ px },${ py + halfH / 2 } ${ px + halfW },${ py + halfH } ${ px },${ py + halfH * 1.5 } ${ px - halfW },${ py + halfH }`;
+};
+
+/** Zone editor rendered over the room seen from the game's isometric angle, with furniture markers (admin only). */
 export const VoiceZoneEditorView: FC<{}> = () =>
 {
     const zones = useVoiceStore((state) => state.zones);
@@ -60,6 +88,59 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     // Grid size: from the floor model; fallback when no heightmap was cached.
     const colCount = rows.reduce((max, row) => Math.max(max, row.length), 0) || 15;
     const rowCount = rows.length || 10;
+
+    // Móveis da sala: um marcador por tile, tooltip com os nomes (mesmos do jogo).
+    const furni = useMemo<FurniMarker[]>(() =>
+    {
+        if(!zoneEditorOpen) return [];
+
+        const session = GetRoomSession();
+
+        if(!session) return [];
+
+        const byTile = new Map<string, string[]>();
+
+        try
+        {
+            const engine = GetRoomEngine();
+            const dataManager = GetSessionDataManager();
+
+            for(const obj of engine.getRoomObjects(session.roomId, RoomObjectCategory.FLOOR))
+            {
+                if(!obj || !obj.model) continue;
+
+                const typeId = obj.model.getValue<number>(RoomObjectVariable.FURNITURE_TYPE_ID);
+
+                if(!typeId) continue;
+
+                const location = (obj as { getLocation?: () => { x: number; y: number; z: number } }).getLocation?.();
+
+                if(!location) continue;
+
+                const name = dataManager.getFloorItemData(typeId)?.name || `#${typeId}`;
+                const key = `${ Math.floor(location.x) },${ Math.floor(location.y) }`;
+                const list = byTile.get(key) || [];
+
+                list.push(name);
+                byTile.set(key, list);
+            }
+        }
+        catch
+        {
+            // engine indisponível: editor continua sem móveis
+        }
+
+        const markers: FurniMarker[] = [];
+
+        for(const [ key, names ] of byTile)
+        {
+            const [ x, y ] = key.split(',').map(Number);
+
+            markers.push({ x, y, name: names.slice(0, 3).join(', ') + (names.length > 3 ? ` (+${ names.length - 3 })` : '') });
+        }
+
+        return markers;
+    }, [ zoneEditorOpen ]);
 
     const isWalkable = (x: number, y: number): boolean =>
     {
@@ -87,14 +168,14 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const close = () => setZoneEditorOpen(false);
 
-    const tileFromEvent = (event: React.MouseEvent<SVGRectElement>): { x: number; y: number } | null =>
+    const tileFromEvent = (event: React.MouseEvent<SVGElement>): { x: number; y: number } | null =>
     {
         const cell = event.currentTarget;
 
-        return { x: Number(cell.dataset.x), y: Number(cell.dataset.y) };
+        return { x: Number(cell.getAttribute('data-x')), y: Number(cell.getAttribute('data-y')) };
     };
 
-    const onTileMouseDown = (event: React.MouseEvent<SVGRectElement>) =>
+    const onTileMouseDown = (event: React.MouseEvent<SVGElement>) =>
     {
         const tile = tileFromEvent(event);
 
@@ -119,7 +200,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
         setDraft((current) => [ ...current, { id: 0, name: `Zona ${current.length + 1}`, x: tile.x, y: tile.y, width: 1, height: 1 } ]);
     };
 
-    const onTileMouseEnter = (event: React.MouseEvent<SVGRectElement>) =>
+    const onTileMouseEnter = (event: React.MouseEvent<SVGElement>) =>
     {
         const drawing = drawingRef.current;
 
@@ -158,28 +239,21 @@ export const VoiceZoneEditorView: FC<{}> = () =>
         setSelected(-1);
     };
 
-    const renameSelected = (name: string) =>
-    {
-        if(selected < 0) return;
-
-        setDraft((current) => current.map((zone, index) => (index === selected ? { ...zone, name } : zone)));
-    };
-
     const save = () =>
     {
         saveZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors);
         setZoneEditorOpen(false);
     };
 
-    const width = colCount * CELL_SIZE;
-    const height = rowCount * CELL_SIZE;
+    const width = (colCount + rowCount) * (CELL_W / 2) + ORIGIN_X * 2;
+    const height = (colCount + rowCount) * (CELL_H / 2) + ORIGIN_Y * 2;
 
     return (
         <div className="voice-zone-editor-overlay">
             <div className="voice-zone-editor">
                 <div className="voice-zone-editor-header">
                     <span className="voice-zone-editor-title">Zonas de áudio</span>
-                    <span className="voice-zone-editor-subtitle">Desenhe as áreas onde as pessoas devem se ouvir</span>
+                    <span className="voice-zone-editor-subtitle">Sala no mesmo ângulo do jogo — desenhe as zonas com base nos móveis</span>
                 </div>
                 <div className="voice-zone-editor-body">
                     <div className="voice-zone-editor-canvas" onMouseUp={ finishDrawing } onMouseLeave={ finishDrawing }>
@@ -191,14 +265,11 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                     const walkable = isWalkable(x, y);
 
                                     return (
-                                        <rect
+                                        <polygon
                                             key={ `${ x }-${ y }` }
                                             data-x={ x }
                                             data-y={ y }
-                                            x={ x * CELL_SIZE }
-                                            y={ y * CELL_SIZE }
-                                            width={ CELL_SIZE }
-                                            height={ CELL_SIZE }
+                                            points={ diamondPoints(x, y) }
                                             className={ [
                                                 'voice-zone-cell',
                                                 !walkable ? 'is-blocked' : '',
@@ -211,16 +282,38 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                     );
                                 }))
                             }
-                            { draft.map((zone, index) => (zone.width >= 1 && zone.height >= 1) && (
-                                <text
-                                    key={ `label-${ index }` }
-                                    x={ zone.x * CELL_SIZE + 4 }
-                                    y={ zone.y * CELL_SIZE + CELL_SIZE - 4 }
-                                    className={ index === selected ? 'is-selected' : '' }
-                                >
-                                    { zone.name }
-                                </text>
-                            )) }
+                            { furni.map((marker) =>
+                            {
+                                const { px, py } = isoPoint(marker.x, marker.y);
+
+                                return (
+                                    <circle
+                                        key={ `furni-${ marker.x }-${ marker.y }` }
+                                        cx={ px }
+                                        cy={ py + CELL_H / 2 }
+                                        r={ 7 }
+                                        className="voice-zone-furni"
+                                        pointerEvents="none"
+                                    >
+                                        <title>{ marker.name }</title>
+                                    </circle>
+                                );
+                            }) }
+                            { draft.map((zone, index) =>
+                            {
+                                const { px, py } = isoPoint(zone.x, zone.y);
+
+                                return (
+                                    <text
+                                        key={ `label-${ index }` }
+                                        x={ px }
+                                        y={ py + 12 }
+                                        className={ index === selected ? 'is-selected' : '' }
+                                    >
+                                        { zone.name }
+                                    </text>
+                                );
+                            }) }
                         </svg>
                     </div>
                     <div className="voice-zone-editor-panel">
@@ -258,19 +351,19 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                             <label>
                                 Na mesma zona
                                 <input type="range" min={ 0 } max={ 100 } value={ factors.same }
-                                    onChange={ (event) => setFactors((current) => ({ ...current, same: Number(event.currentTarget.value) })) } />
+                                    onChange={ (event) => setFactors((current) => ({ ...current, same: Number(event.target.value) })) } />
                                 <b>{ factors.same }%</b>
                             </label>
                             <label>
                                 Em outra zona
                                 <input type="range" min={ 0 } max={ 100 } value={ factors.other }
-                                    onChange={ (event) => setFactors((current) => ({ ...current, other: Number(event.currentTarget.value) })) } />
+                                    onChange={ (event) => setFactors((current) => ({ ...current, other: Number(event.target.value) })) } />
                                 <b>{ factors.other }%</b>
                             </label>
                             <label>
                                 Fora de zona
                                 <input type="range" min={ 0 } max={ 100 } value={ factors.outside }
-                                    onChange={ (event) => setFactors((current) => ({ ...current, outside: Number(event.currentTarget.value) })) } />
+                                    onChange={ (event) => setFactors((current) => ({ ...current, outside: Number(event.target.value) })) } />
                                 <b>{ factors.outside }%</b>
                             </label>
                         </div>
