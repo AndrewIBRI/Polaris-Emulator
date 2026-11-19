@@ -82,7 +82,20 @@ export const collectFurni = (): FurniMarker[] =>
         // engine indisponível: segue sem móveis
     }
 
-    (window as unknown as { __zDbg?: unknown }).__zDbg = { session: !!session, roomId: session?.roomId, objCount: dbgObjCount, error: dbgError, markers: byTile.size };
+    let dbgCats: Record<number, number> = {};
+
+    try
+    {
+        const engine = GetRoomEngine();
+
+        for(const cat of [ 0, 10, 20, 30, 40, 50, 100, 200, 999 ]) dbgCats[cat] = (engine.getRoomObjects(session.roomId, cat) || []).length;
+    }
+    catch(error)
+    {
+        dbgError += ' cats:' + String(error).slice(0, 80);
+    }
+
+    (window as unknown as { __zDbg?: unknown }).__zDbg = { session: !!session, roomId: session?.roomId, objCount: dbgObjCount, error: dbgError, markers: byTile.size, cats: dbgCats };
 
     const markers: FurniMarker[] = [];
 
