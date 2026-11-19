@@ -4,7 +4,7 @@ import { GetRoomSession } from '../../../../api';
 import { OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../../../common/card';
 import { useVoiceStore, VoiceZoneArea } from '../../../../state/voiceStore';
 import { saveVoiceZones } from '../../../../api/voice/saveVoiceZones';
-import { VoiceZoneCanvas, loadTileImage, zoneColor } from './VoiceZoneCanvas';
+import { VoiceZoneCanvas, zoneColor } from './VoiceZoneCanvas';
 import '../../../../css/room/VoiceZoneEditor.css';
 
 /** Parses the room's floor model string into tile heights: ONE base36 char per tile ('x' = blocked), like the game does. */
@@ -62,13 +62,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const [ draft, setDraft ] = useState<VoiceZoneArea[]>([]);
     const [ selected, setSelected ] = useState<number>(-1);
     const [ factors, setFactors ] = useState({ same: 100, other: 10, outside: 35 });
-    const [ tileImage, setTileImage ] = useState<HTMLImageElement | null>(null);
     const drawingRef = useRef<{ startX: number; startY: number; index: number } | null>(null);
-
-    useEffect(() =>
-    {
-        loadTileImage().then(setTileImage);
-    }, []);
 
     const resetDraft = useCallback(() =>
     {
@@ -176,7 +170,6 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                         heights={ heights }
                                         draft={ draft }
                                         selected={ selected }
-                                        tileImage={ tileImage }
                                         onTileMouseDown={ beginDraw }
                                         onTileHover={ hoverDraw }
                                         onTileSelect={ setSelected }

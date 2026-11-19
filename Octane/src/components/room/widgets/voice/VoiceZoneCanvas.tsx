@@ -4,10 +4,14 @@ import { GetRoomEngine, GetSessionDataManager } from '@octane/renderer';
 import { VoiceZoneArea } from '../../../../state/voiceStore';
 import { GetRoomSession } from '../../../../api';
 
-// Mesma projeção e mesmo tamanho de tile do preview do Floor Plan Editor (airPreview.ts).
-import tileBase from '../../../../assets/images/floorplaneditor/preview/tile_preview_0.png';
+// Render top-down (estilo do editor de floor plan azul): grade de quadrados alinhada,
+// chão azul e tiles com móveis pintados em outra cor — sem projeção isométrica.
+const TILE = 14;
+const GAP = 1;
 
-const TILE = 18;
+const FLOOR_COLOR = '#0065ff'; // mesmo azul do COLORMAP h=0 do editor de floor plan
+const FURNI_COLOR = '#ffa000'; // tiles com móveis
+const EMPTY_COLOR = '#f2f2f2';
 
 interface FurniMarker
 {
@@ -23,17 +27,6 @@ interface CanvasTile
     sx: number;
     sy: number;
 }
-
-/** Carrega a imagem base do tile do preview do floor plan. */
-export const loadTileImage = (): Promise<HTMLImageElement> =>
-    new Promise((resolve) =>
-    {
-        const image = new Image();
-
-        image.onload = () => resolve(image);
-        image.onerror = () => resolve(image);
-        image.src = tileBase;
-    });
 
 /** Móveis da sala ao vivo: um marcador por tile com os nomes reais (mesmos do jogo). */
 export const collectFurni = (): FurniMarker[] =>
@@ -93,15 +86,14 @@ interface Props
     heights: number[][];
     draft: VoiceZoneArea[];
     selected: number;
-    tileImage: HTMLImageElement | null;
     onTileMouseDown: (x: number, y: number) => void;
     onTileHover: (x: number, y: number) => void;
     onTileSelect: (index: number) => void;
     onFinish: () => void;
 }
 
-/** Mesmo render do preview do Floor Plan Editor: tiles air_preview na projeção 8(x-y)/4(x+y), zonas pintadas por cima. */
-export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage, onTileMouseDown, onTileHover, onTileSelect, onFinish }) =>
+/** Render top-down do editor de zonas: quadrados alinhados, chão azul, móveis destacados, zonas por cima. */
+export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, onTileMouseDown, onTileHover, onTileSelect, onFinish }) =>
 {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [ furni, setFurni ] = useState<FurniMarker[]>([]);
@@ -110,37 +102,24 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
     const layout = useMemo(() =>
     {
         const tiles: CanvasTile[] = [];
-        const pxAt = (x: number, y: number, h: number) => ({ px: 8 * (x - y), py: 4 * (x + y) - 8 * h });
-
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
+        const size = TILE + GAP;
 
         for(let y = 0; y < heights.length; y++)
         {
             for(let x = 0; x < (heights[y]?.length ?? 0); x++)
             {
-                const h = heights[y][x];
+                if(heights[y][x] < 0) continue;
 
-                if(h < 0) continue;
-
-                const { px, py } = pxAt(x, y, h);
-
-                minX = Math.min(minX, px);
-                minY = Math.min(minY, py);
-                maxX = Math.max(maxX, px);
-                maxY = Math.max(maxY, py);
-                tiles.push({ x, y, sx: px, sy: py });
+                tiles.push({ x, y, sx: x * size, sy: y * size });
             }
         }
 
         if(!tiles.length) return { width: 1, height: 1, tiles: [] };
 
         return {
-            width: maxX - minX + TILE,
-            height: maxY - minY + TILE,
-            tiles: tiles.map((tile) => ({ ...tile, sx: tile.sx - minX, sy: tile.sy - minY }))
+            width: Math.max(...tiles.map((tile) => tile.sx)) + TILE,
+            height: Math.max(...tiles.map((tile) => tile.sy)) + TILE,
+            tiles
         };
     }, [ heights ]);
 
@@ -158,7 +137,7 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
         setFurni(collectFurni());
     }, []);
 
-    // Pinta: fundo branco + tiles (mesmas imagens do floor plan) + zonas por cima.
+    // Pinta: grade top-down + zonas por cima.
     useEffect(() =>
     {
         const canvas = canvasRef.current;
@@ -168,12 +147,16 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
 
         canvas.width = Math.max(1, layout.width);
         canvas.height = Math.max(1, layout.height);
+
         context.fillStyle = '#ffffff';
         context.fillRect(0, 0, canvas.width, canvas.height);
 
-        if(tileImage?.complete && tileImage.naturalWidth)
+        const furniSet = new Set(furni.map((marker) => `${ marker.x },${ marker.y }`));
+
+        for(const tile of layout.tiles)
         {
-            for(const tile of layout.tiles) context.drawImage(tileImage, tile.sx, tile.sy);
+            context.fillStyle = furniSet.has(`${ tile.x },${ tile.y }`) ? FURNI_COLOR : FLOOR_COLOR;
+            context.fillRect(tile.sx, tile.sy, TILE, TILE);
         }
 
         for(const [ index, zone ] of draft.entries())
@@ -188,20 +171,11 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
 
                     if(!tile) continue;
 
-                    const cx = tile.sx + TILE / 2;
-                    const cy = tile.sy + TILE / 2;
-
-                    context.beginPath();
-                    context.moveTo(cx, cy - TILE / 4);
-                    context.lineTo(cx + TILE / 2, cy);
-                    context.lineTo(cx, cy + TILE / 4);
-                    context.lineTo(cx - TILE / 2, cy);
-                    context.closePath();
                     context.fillStyle = withAlpha(color, selected === index ? 0.85 : 0.6);
-                    context.fill();
+                    context.fillRect(tile.sx, tile.sy, TILE, TILE);
                     context.strokeStyle = color;
                     context.lineWidth = 1;
-                    context.stroke();
+                    context.strokeRect(tile.sx + 0.5, tile.sy + 0.5, TILE - 1, TILE - 1);
                 }
             }
 
@@ -211,28 +185,10 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
             {
                 context.font = 'bold 10px sans-serif';
                 context.fillStyle = '#1a1a1a';
-                context.fillText(zone.name, first.sx + TILE / 2 + 2, first.sy + 4);
+                context.fillText(zone.name, first.sx + 2, first.sy - 2);
             }
         }
-
-        // Marcadores de móvel por cima (mesma posição do tile na sala).
-        for(const marker of furni)
-        {
-            const tile = tileAt.get(`${ marker.x },${ marker.y }`);
-
-            if(!tile) continue;
-
-            const cx = tile.sx + TILE / 2;
-            const cy = tile.sy + TILE / 2;
-
-            context.beginPath();
-            context.arc(cx, cy, 4, 0, Math.PI * 2);
-            context.fillStyle = 'rgba(255,255,255,0.9)';
-            context.fill();
-            context.strokeStyle = '#222';
-            context.stroke();
-        }
-    }, [ tileImage, layout, draft, selected, tileAt, furni ]);
+    }, [ layout, draft, selected, tileAt, furni ]);
 
     const hitTest = (clientX: number, clientY: number): CanvasTile | null =>
     {
@@ -241,18 +197,11 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
         if(!canvas) return null;
 
         const rect = canvas.getBoundingClientRect();
-        const mx = clientX - rect.left;
-        const my = clientY - rect.top;
+        const size = TILE + GAP;
+        const x = Math.floor((clientX - rect.left) / size);
+        const y = Math.floor((clientY - rect.top) / size);
 
-        for(const tile of layout.tiles)
-        {
-            const dx = Math.abs(mx - (tile.sx + TILE / 2)) / (TILE / 2);
-            const dy = Math.abs(my - (tile.sy + TILE / 2)) / (TILE / 4);
-
-            if(dx + dy <= 1) return tile;
-        }
-
-        return null;
+        return tileAt.get(`${ x },${ y }`) || null;
     };
 
     const onMouseMove = (event: ReactMouseEvent<HTMLCanvasElement>) =>
@@ -290,21 +239,6 @@ export const VoiceZoneCanvas: FC<Props> = ({ heights, draft, selected, tileImage
     return (
         <div className="fp-air-preview" data-testid="voice-zone-canvas">
             <div className="voice-zone-paint-layer" style={ { width: layout.width, height: layout.height } }>
-                { furni.map((marker) =>
-                {
-                    const tile = tileAt.get(`${ marker.x },${ marker.y }`);
-
-                    if(!tile) return null;
-
-                    return (
-                        <div
-                            key={ `furni-${ marker.x }-${ marker.y }` }
-                            className="voice-zone-furni-dot"
-                            style={ { left: tile.sx + TILE / 2 - 5, top: tile.sy + TILE / 2 - 5 } }
-                            title={ marker.name }
-                        />
-                    );
-                }) }
                 <canvas
                     ref={ canvasRef }
                     className="fp-air-preview-canvas voice-zone-paint-canvas"
