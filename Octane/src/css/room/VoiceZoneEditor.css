@@ -59,6 +59,40 @@
 .voice-zone-editor-canvas svg {
     display: block;
     cursor: crosshair;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Dentro da janela do floor plan (fp-panel-body fixo) */
+.fp-panel-body.voice-zone-editor-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+}
+
+.fp-panel .voice-zone-editor-factors label {
+    display: grid;
+    grid-template-columns: 1fr 78px;
+    align-items: center;
+    gap: 4px 8px;
+    font-size: 11px;
+}
+
+.fp-panel .voice-zone-editor-factors label input[type='range'] {
+    grid-column: 1 / -1;
+    width: 100%;
+    accent-color: var(--accent, #3ddc84);
+}
+
+.fp-panel .voice-zone-editor-factors b {
+    font-size: 11px;
+    text-align: right;
+}
+
+.fp-panel .voice-zone-editor-actions {
+    display: flex;
+    gap: 6px;
 }
 
 /* Marcador de móvel (mesma posição do tile no jogo) */

@@ -1,8 +1,9 @@
 import { FC, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { GetRoomEngine, GetSessionDataManager, RoomObjectCategory, RoomObjectVariable } from '@octane/renderer';
+import { OctaneCardContentView, OctaneCardHeaderView, OctaneCardView } from '../../../../common/card';
 import { useVoiceStore, VoiceZoneArea } from '../../../../state/voiceStore';
-import { useVoice } from '../../../../hooks/voice/useVoice';
 import { GetRoomSession } from '../../../../api';
+import { saveVoiceZones } from '../../../../api/voice/saveVoiceZones';
 import '../../../../css/room/VoiceZoneEditor.css';
 
 // Diamante 2:1 — mesma projeção isométrica do jogo.
@@ -76,7 +77,6 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const tilemap = useVoiceStore((state) => state.zoneTilemap);
     const zoneFactors = useVoiceStore((state) => state.zoneFactors);
     const setZoneEditorOpen = useVoiceStore((state) => state.setZoneEditorOpen);
-    const { saveZones } = useVoice();
 
     const rows = useMemo(() => parseTilemap(tilemap), [ tilemap ]);
 
@@ -241,7 +241,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const save = () =>
     {
-        saveZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors);
+        saveVoiceZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors);
         setZoneEditorOpen(false);
     };
 
@@ -250,13 +250,30 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     return (
         <div className="voice-zone-editor-overlay">
-            <div className="voice-zone-editor">
-                <div className="voice-zone-editor-header">
-                    <span className="voice-zone-editor-title">Zonas de áudio</span>
-                    <span className="voice-zone-editor-subtitle">Sala no mesmo ângulo do jogo — desenhe as zonas com base nos móveis</span>
-                </div>
-                <div className="voice-zone-editor-body">
-                    <div className="voice-zone-editor-canvas" onMouseUp={ finishDrawing } onMouseLeave={ finishDrawing }>
+            <OctaneCardView
+                uniqueKey="voice-zone-editor"
+                className="w-[662px] h-[600px] min-w-[662px] min-h-[600px] max-w-[calc(100vw-16px)] max-h-[calc(100vh-16px)]"
+                classNames={['octane-floorplan-window']}
+                theme="primary-slim"
+            >
+                <OctaneCardHeaderView headerText="Zonas de áudio" onCloseClick={ close } />
+                <OctaneCardContentView overflow="hidden" className="flex flex-col">
+                    <div className="fp-body">
+                        <div className="fp-banner">
+                            <span className="fp-banner-logo" />
+                            <span className="fp-banner-text">
+                                <span className="fp-banner-title">Zonas de áudio da sala</span>
+                                <span className="fp-banner-subtitle">Desenhe com base nos móveis — mesmo ângulo do jogo</span>
+                            </span>
+                        </div>
+                        <div className="fp-panels">
+                            <div className="fp-panel is-plan">
+                                <div className="fp-panel-head">
+                                    <span className="fp-panel-title">Zonas ({ draft.length })</span>
+                                    <span className="fp-panel-info">Clique e arraste para desenhar</span>
+                                </div>
+                                <div className="fp-panel-body voice-zone-editor-body">
+                                    <div className="voice-zone-editor-canvas" onMouseUp={ finishDrawing } onMouseLeave={ finishDrawing }>
                         <svg width={ width } height={ height }>
                             { Array.from({ length: rowCount }).map((_, y) =>
                                 Array.from({ length: colCount }).map((__, x) =>
@@ -315,12 +332,16 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                 );
                             }) }
                         </svg>
-                    </div>
-                    <div className="voice-zone-editor-panel">
-                        <div className="voice-zone-editor-hint">
-                            Clique e arraste para desenhar uma zona. Clique numa zona para renomear ou apagar.
-                        </div>
-                        <ul className="voice-zone-editor-list">
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="fp-panel is-preview">
+                                <div className="fp-panel-head">
+                                    <span className="fp-panel-title">Volumes (por sala)</span>
+                                    <span className="fp-panel-info">Aplicados a todos os avatares</span>
+                                </div>
+                                <div className="fp-panel-body">
+                                    <ul className="voice-zone-editor-list">
                             { draft.map((zone, index) => (
                                 <li
                                     key={ index }
@@ -347,7 +368,6 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                             </div>
                         ) }
                         <div className="voice-zone-editor-factors">
-                            <span className="voice-zone-editor-factors-title">Volumes (por sala)</span>
                             <label>
                                 Na mesma zona
                                 <input type="range" min={ 0 } max={ 100 } value={ factors.same }
@@ -367,13 +387,16 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                 <b>{ factors.outside }%</b>
                             </label>
                         </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div className="voice-zone-editor-footer">
-                    <button className="voice-zone-editor-button" onClick={ close }>Cancelar</button>
-                    <button className="voice-zone-editor-button is-primary" onClick={ save }>Salvar</button>
-                </div>
-            </div>
+                    <div className="fp-footer">
+                        <button className="fp-btn" onClick={ close }>Cancelar</button>
+                        <button className="fp-btn is-blue" onClick={ save }>Salvar</button>
+                    </div>
+                </OctaneCardContentView>
+            </OctaneCardView>
         </div>
     );
 };
