@@ -283,7 +283,9 @@ const useTranslationStore = () =>
         enabled: false,
         incomingTargetLanguage: defaultTargetLanguage,
         outgoingTargetLanguage: defaultTargetLanguage,
-        uiTextLanguage: ''
+        // Primeira visita: acompanhar o idioma do navegador (ex.: pt-BR) em vez
+        // de ficar vazio — vazio deixa os textos em inglês até trocar de idioma.
+        uiTextLanguage: defaultTargetLanguage
     });
     const [ supportedLanguages, setSupportedLanguages ] = useState<ITranslationLanguage[]>([]);
     const [ availableTextLocales ] = useState<ITranslationTextLocale[]>(TEXT_TRANSLATION_LOCALES);
@@ -561,7 +563,10 @@ const useTranslationStore = () =>
     {
         let disposed = false;
         const requestId = ++localizationRequestRef.current;
-        const selectedLocale = resolveTextTranslationLocale(settings.uiTextLanguage || '');
+        // Valor vazio (visitantes antigos) volta ao idioma do navegador; o
+        // fallback persiste pra próxima visita carregar direto no idioma certo.
+        const selectedLanguage = settings.uiTextLanguage || getBrowserLanguageCode();
+        const selectedLocale = resolveTextTranslationLocale(selectedLanguage);
 
         const applyLocalizationOverride = async () =>
         {
@@ -584,7 +589,7 @@ const useTranslationStore = () =>
             {
                 if(disposed || (localizationRequestRef.current !== requestId)) return;
 
-                await applyTextTranslationLocale(settings.uiTextLanguage || '');
+                await applyTextTranslationLocale(selectedLanguage);
 
                 if(disposed || (localizationRequestRef.current !== requestId)) return;
 
