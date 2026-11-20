@@ -17,5 +17,10 @@ CREATE TABLE IF NOT EXISTS `room_voice_zone_settings` (
   `same_factor` int(11) NOT NULL DEFAULT 100,
   `other_factor` int(11) NOT NULL DEFAULT 10,
   `outside_factor` int(11) NOT NULL DEFAULT 35,
+  `video_global` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`room_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+
+-- Bancos criados antes do video_global: adiciona a coluna (idempotente).
+ALTER TABLE `room_voice_zone_settings`
+  ADD COLUMN IF NOT EXISTS `video_global` tinyint(1) NOT NULL DEFAULT 0;

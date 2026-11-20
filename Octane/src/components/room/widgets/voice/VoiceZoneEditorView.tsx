@@ -38,6 +38,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const zoneEditorOpen = useVoiceStore((state) => state.zoneEditorOpen);
     const tilemap = useVoiceStore((state) => state.zoneTilemap);
     const zoneFactors = useVoiceStore((state) => state.zoneFactors);
+    const storeVideoGlobal = useVoiceStore((state) => state.videoGlobal);
     const setZoneEditorOpen = useVoiceStore((state) => state.setZoneEditorOpen);
 
     // Preferência: heightmap do evento; fallback: heightmap ao vivo do engine do jogo (caso o evento tenha passado antes do hook montar).
@@ -62,14 +63,16 @@ export const VoiceZoneEditorView: FC<{}> = () =>
     const [ draft, setDraft ] = useState<VoiceZoneArea[]>([]);
     const [ selected, setSelected ] = useState<number>(-1);
     const [ factors, setFactors ] = useState({ same: 100, other: 0, outside: 1 });
+    const [ videoGlobal, setVideoGlobal ] = useState(false);
     const drawingRef = useRef<{ startX: number; startY: number; index: number } | null>(null);
 
     const resetDraft = useCallback(() =>
     {
         setDraft(zones.map((zone) => ({ ...zone })));
         setFactors({ ...zoneFactors });
+        setVideoGlobal(storeVideoGlobal);
         setSelected(-1);
-    }, [ zones, zoneFactors ]);
+    }, [ zones, zoneFactors, storeVideoGlobal ]);
 
     // Recarrega o rascunho cada vez que o editor abre.
     useEffect(() =>
@@ -129,7 +132,7 @@ export const VoiceZoneEditorView: FC<{}> = () =>
 
     const save = () =>
     {
-        saveVoiceZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors);
+        saveVoiceZones(draft.map((zone) => ({ id: 0, name: zone.name, x: zone.x, y: zone.y, width: zone.width, height: zone.height })), factors, videoGlobal);
         setZoneEditorOpen(false);
     };
 
@@ -227,6 +230,11 @@ export const VoiceZoneEditorView: FC<{}> = () =>
                                             <input type="range" min={ 0 } max={ 100 } value={ factors.outside }
                                                 onChange={ (event) => setFactors((current) => ({ ...current, outside: Number(event.target.value) })) } />
                                             <b>{ factors.outside }%</b>
+                                        </label>
+                                        <label className="voice-zone-editor-video-global" title="Quando ativo, câmera e tela são vistas pela sala INTEIRA (ignora as zonas)">
+                                            <input type="checkbox" checked={ videoGlobal }
+                                                onChange={ (event) => setVideoGlobal(event.target.checked) } />
+                                            Vídeo global (toda a sala)
                                         </label>
                                     </div>
                                 </div>

@@ -74,6 +74,18 @@ const displayName = (video: VoiceVideo): string =>
     return GetRoomSession()?.userDataManager.getUserData(webID)?.name || video.identity;
 };
 
+/** Vídeo espacial: só aparece na janela quem está na MESMA zona que eu
+ *  (área aberta comum conta como "mesma zona"). Local sempre aparece.
+ *  videoVisible === null significa "todos" (sem zonas, assembleia ou modo global). */
+const isVideoVisible = (video: VoiceVideo, videoVisible: Set<string> | null): boolean =>
+{
+    if(video.local) return true;
+
+    if(!videoVisible) return true;
+
+    return videoVisible.has(video.identity);
+};
+
 /** Renders one video MediaStreamTrack in a <video> element. */
 const VideoTile: FC<{ video: VoiceVideo; className?: string; showLabel?: boolean; onMetadata?: (element: HTMLVideoElement) => void }> = ({ video, className, showLabel = true, onMetadata }) =>
 {
@@ -154,10 +166,10 @@ export const CameraWindowView: FC<{}> = () =>
     // Proporção real do stream (0 até o vídeo informar); a janela se ajusta a ela.
     const [ aspect, setAspect ] = useState(0);
 
-    const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
+    const { videos, hiddenWindows, videoVisible, setWindowHidden } = useVoiceStore();
 
-    const screens = videos.filter((video) => video.source === 'screen');
-    const cameras = videos.filter((video) => video.source === 'camera');
+    const screens = videos.filter((video) => (video.source === 'screen') && isVideoVisible(video, videoVisible));
+    const cameras = videos.filter((video) => (video.source === 'camera') && isVideoVisible(video, videoVisible));
 
     // A janela acompanha a proporção REAL do vídeo: altura = largura / aspecto,
     // então o vídeo encosta em TODAS as bordas (sem barras pretas). Se o
@@ -227,10 +239,10 @@ export const ScreenWindowView: FC<{}> = () =>
     // Refs (sem setState — um setState em callback de ref causa loop infinito / React #185)
     const stageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-    const { videos, hiddenWindows, setWindowHidden } = useVoiceStore();
+    const { videos, hiddenWindows, videoVisible, setWindowHidden } = useVoiceStore();
 
-    const screens = videos.filter((video) => video.source === 'screen');
-    const cameras = videos.filter((video) => video.source === 'camera');
+    const screens = videos.filter((video) => (video.source === 'screen') && isVideoVisible(video, videoVisible));
+    const cameras = videos.filter((video) => (video.source === 'camera') && isVideoVisible(video, videoVisible));
 
     const toggleFullscreen = useCallback((element: HTMLElement | null | undefined) =>
     {

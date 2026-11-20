@@ -70,6 +70,10 @@ interface VoiceState {
     zoneEditorOpen: boolean;
     /** Per-room spatial volume factors (percent, server-configured). */
     zoneFactors: { same: number; other: number; outside: number };
+    /** Modo global: transmissões (câmera/tela) visíveis na sala toda, fora das zonas. */
+    videoGlobal: boolean;
+    /** Identidades cujo vídeo está visível (mesma zona); null = todos visíveis. */
+    videoVisible: Set<string> | null;
     /** LiveKit identities that already have a spatial factor applied. */
     spatialApplied: Set<string>;
     /** Raw floor heightmap of the current room (for the zone editor grid). */
@@ -105,6 +109,8 @@ interface VoiceState {
     setCanEditZones: (canEdit: boolean) => void;
     setZoneEditorOpen: (open: boolean) => void;
     setZoneFactors: (factors: { same: number; other: number; outside: number }) => void;
+    setVideoGlobal: (videoGlobal: boolean) => void;
+    setVideoVisible: (visible: Set<string> | null) => void;
     setZoneTilemap: (tilemap: string) => void;
     setRoomName: (roomName: string) => void;
     setCurrentZone: (currentZone: number) => void;
@@ -171,6 +177,8 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     canEditZones: false,
     zoneEditorOpen: false,
     zoneFactors: { same: 100, other: 0, outside: 1 },
+    videoGlobal: false,
+    videoVisible: null,
     spatialApplied: new Set<string>(),
     zoneTilemap: '',
     roomName: '',
@@ -207,6 +215,8 @@ export const useVoiceStore = createOctaneStore<VoiceState>()((set) => ({
     setCanEditZones: (canEditZones) => set({ canEditZones }),
     setZoneEditorOpen: (zoneEditorOpen) => set({ zoneEditorOpen }),
     setZoneFactors: (zoneFactors) => set({ zoneFactors }),
+    setVideoGlobal: (videoGlobal) => set({ videoGlobal }),
+    setVideoVisible: (videoVisible) => set({ videoVisible }),
     setZoneTilemap: (zoneTilemap) => set({ zoneTilemap }),
     setRoomName: (roomName) => set({ roomName }),
     setCurrentZone: (currentZone) => set({ currentZone }),

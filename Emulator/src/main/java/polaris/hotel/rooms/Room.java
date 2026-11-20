@@ -2068,6 +2068,8 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     private int voiceSameFactor = 100;
     private int voiceOtherFactor = 0;
     private int voiceOutsideFactor = 1;
+    /** When true, camera/screen streams are visible to the whole room regardless of zones. */
+    private boolean voiceVideoGlobal = false;
     private boolean voiceSettingsLoaded = false;
 
     /**
@@ -2108,6 +2110,17 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
         this.saveVoiceFactors();
     }
 
+    /** Whether camera/screen streams are visible to the whole room (ignores zones). */
+    public boolean getVoiceVideoGlobal() {
+        this.ensureVoiceSettingsLoaded();
+        return this.voiceVideoGlobal;
+    }
+
+    public void setVoiceVideoGlobal(boolean videoGlobal) {
+        this.voiceVideoGlobal = videoGlobal;
+        this.saveVoiceFactors();
+    }
+
     private static int clampPercent(int value) {
         if (value < 0) return 0;
         if (value > 100) return 100;
@@ -2120,7 +2133,7 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
 
         this.voiceSettingsLoaded = true;
 
-        final String sql = "SELECT same_factor, other_factor, outside_factor FROM room_voice_zone_settings WHERE room_id = ?";
+        final String sql = "SELECT same_factor, other_factor, outside_factor, video_global FROM room_voice_zone_settings WHERE room_id = ?";
 
         try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
              java.sql.PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -2131,6 +2144,7 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
                     this.voiceSameFactor = set.getInt("same_factor");
                     this.voiceOtherFactor = set.getInt("other_factor");
                     this.voiceOutsideFactor = set.getInt("outside_factor");
+                    this.voiceVideoGlobal = set.getBoolean("video_global");
                 }
             }
         } catch (SQLException e) {
@@ -2139,8 +2153,8 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
     }
 
     private void saveVoiceFactors() {
-        final String sql = "INSERT INTO room_voice_zone_settings (room_id, same_factor, other_factor, outside_factor) VALUES (?, ?, ?, ?) "
-                + "ON DUPLICATE KEY UPDATE same_factor = VALUES(same_factor), other_factor = VALUES(other_factor), outside_factor = VALUES(outside_factor)";
+        final String sql = "INSERT INTO room_voice_zone_settings (room_id, same_factor, other_factor, outside_factor, video_global) VALUES (?, ?, ?, ?, ?) "
+                + "ON DUPLICATE KEY UPDATE same_factor = VALUES(same_factor), other_factor = VALUES(other_factor), outside_factor = VALUES(outside_factor), video_global = VALUES(video_global)";
 
         try (Connection connection = Emulator.getDatabase().getDataSource().getConnection();
              java.sql.PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -2148,6 +2162,7 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
             statement.setInt(2, this.voiceSameFactor);
             statement.setInt(3, this.voiceOtherFactor);
             statement.setInt(4, this.voiceOutsideFactor);
+            statement.setBoolean(5, this.voiceVideoGlobal);
             statement.executeUpdate();
         } catch (SQLException e) {
             LOGGER.error("Failed to save voice zone settings for room {}", this.getId(), e);
@@ -2167,7 +2182,7 @@ public class Room implements Comparable<Room>, ISerialize, Runnable {
         this.saveVoiceZones();
         this.sendComposer(new polaris.messages.outgoing.voice.VoiceZonesComposer(this.getId(), true,
                 this.getVoiceSameFactor(), this.getVoiceOtherFactor(), this.getVoiceOutsideFactor(),
-                this.voiceZones).compose());
+                this.getVoiceVideoGlobal(), this.voiceZones).compose());
     }
 
     private List<polaris.hotel.voice.VoiceZone> loadVoiceZones() {

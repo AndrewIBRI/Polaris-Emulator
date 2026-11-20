@@ -34,7 +34,12 @@ public class SaveVoiceZonesEvent extends MessageHandler {
 
         if (sameFactor == null || otherFactor == null || outsideFactor == null) return;
 
+        // Vídeo global: transmissões (câmera/tela) visíveis na sala toda, fora das zonas.
+        final Boolean videoGlobal = this.packet.readBoolean();
+
         room.setVoiceFactors(sameFactor, otherFactor, outsideFactor);
+
+        if (videoGlobal != null) room.setVoiceVideoGlobal(videoGlobal);
 
         final Integer count = this.packet.readInt();
 

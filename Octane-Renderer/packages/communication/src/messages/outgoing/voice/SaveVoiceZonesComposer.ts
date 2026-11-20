@@ -1,13 +1,13 @@
 import { IMessageComposer } from '@octane/api';
 
 /** Custom voice composer (6107): saves the room's audio zones (admin only). */
-export class SaveVoiceZonesComposer implements IMessageComposer<(string | number)[]>
+export class SaveVoiceZonesComposer implements IMessageComposer<(string | number | boolean)[]>
 {
-    private _data: (string | number)[];
+    private _data: (string | number | boolean)[];
 
-    constructor(factors: { same: number; other: number; outside: number }, zones: { name: string; x: number; y: number; width: number; height: number }[])
+    constructor(factors: { same: number; other: number; outside: number }, videoGlobal: boolean, zones: { name: string; x: number; y: number; width: number; height: number }[])
     {
-        this._data = [ factors.same, factors.other, factors.outside, zones.length ];
+        this._data = [ factors.same, factors.other, factors.outside, videoGlobal, zones.length ];
 
         for(const zone of zones)
         {
@@ -15,7 +15,7 @@ export class SaveVoiceZonesComposer implements IMessageComposer<(string | number
         }
     }
 
-    public getMessageArray(): (string | number)[]
+    public getMessageArray(): (string | number | boolean)[]
     {
         return this._data;
     }

@@ -99,6 +99,21 @@
     text-align: right;
 }
 
+.fp-panel .voice-zone-editor-factors label.voice-zone-editor-video-global {
+    grid-template-columns: auto 1fr;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    margin-top: 4px;
+}
+
+.fp-panel .voice-zone-editor-factors label.voice-zone-editor-video-global input[type='checkbox'] {
+    accent-color: var(--accent, #3ddc84);
+    width: 14px;
+    height: 14px;
+}
+
 .fp-panel .voice-zone-editor-actions {
     display: flex;
     gap: 6px;

@@ -24,10 +24,10 @@ const applySpatial = () =>
 {
     const state = useVoiceStore.getState();
 
-    // Sem zonas (ou modo assembleia): todos no mesmo volume.
+    // Sem zonas (ou modo assembleia): todos no mesmo volume e todos visíveis.
     if(!state.zones.length || state.assembly)
     {
-        useVoiceStore.setState({ currentZone: -1 });
+        useVoiceStore.setState({ currentZone: -1, videoVisible: null });
 
         for(const identity of state.spatialApplied)
         {
@@ -84,6 +84,7 @@ const applySpatial = () =>
 
     const factors = state.zoneFactors ?? { same: DEFAULT_SAME, other: DEFAULT_OTHER, outside: DEFAULT_OUTSIDE };
     const applied = new Set<string>();
+    const visible = new Set<string>();
 
     for(const user of users)
     {
@@ -99,17 +100,36 @@ const applySpatial = () =>
         // - "outra zona": cada um numa zona diferente (cômodos distintos).
         // - "fora de zona": um dos dois está em NENHUMA zona (área aberta) e o outro está numa zona.
         let factor: number;
+        // "Mesma área": mesma zona, ou ambos fora de qualquer zona (área aberta).
+        let sameArea: boolean;
 
-        if(myZone === -1 && zone === -1) factor = factors.same;
-        else if(myZone === -1 || zone === -1) factor = factors.outside;
-        else factor = (zone === myZone) ? factors.same : factors.other;
+        if(myZone === -1 && zone === -1)
+        {
+            factor = factors.same;
+            sameArea = true;
+        }
+        else if(myZone === -1 || zone === -1)
+        {
+            factor = factors.outside;
+            sameArea = false;
+        }
+        else
+        {
+            factor = (zone === myZone) ? factors.same : factors.other;
+            sameArea = zone === myZone;
+        }
 
         voiceConnection.setSpatialVolume(identity, factor / 100);
+
+        // Vídeo segue o MESMO modelo do áudio: só visível na mesma área. O modo
+        // global (videoGlobal) mostra pra sala inteira, ignorando as zonas.
+        if(!state.videoGlobal && !sameArea) visible.delete(identity);
+        else visible.add(identity);
 
         applied.add(identity);
     }
 
-    useVoiceStore.setState({ spatialApplied: applied });
+    useVoiceStore.setState({ spatialApplied: applied, videoVisible: visible });
 };
 
 /**

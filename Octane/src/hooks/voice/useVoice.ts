@@ -30,9 +30,9 @@ export const useVoice = () =>
         SendMessageComposer(new GetVoiceZonesComposer());
     }, []);
 
-    const saveZones = useCallback((zones: IZone[], factors: { same: number; other: number; outside: number }) =>
+    const saveZones = useCallback((zones: IZone[], factors: { same: number; other: number; outside: number }, videoGlobal: boolean = false) =>
     {
-        SendMessageComposer(new SaveVoiceZonesComposer(factors, zones));
+        SendMessageComposer(new SaveVoiceZonesComposer(factors, videoGlobal, zones));
     }, []);
 
     const disconnect = useCallback(() =>
@@ -118,6 +118,7 @@ export const useVoice = () =>
             other: parser.otherFactor,
             outside: parser.outsideFactor
         });
+        useVoiceStore.getState().setVideoGlobal(parser.videoGlobal);
     });
 
     // Captura o heightmap do piso para o grid do editor de zonas (admin).

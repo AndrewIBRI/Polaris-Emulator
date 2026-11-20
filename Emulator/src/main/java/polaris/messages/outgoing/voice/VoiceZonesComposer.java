@@ -18,14 +18,16 @@ public class VoiceZonesComposer extends MessageComposer {
     private final int sameFactor;
     private final int otherFactor;
     private final int outsideFactor;
+    private final boolean videoGlobal;
     private final List<VoiceZone> zones;
 
-    public VoiceZonesComposer(int roomId, boolean canEdit, int sameFactor, int otherFactor, int outsideFactor, List<VoiceZone> zones) {
+    public VoiceZonesComposer(int roomId, boolean canEdit, int sameFactor, int otherFactor, int outsideFactor, boolean videoGlobal, List<VoiceZone> zones) {
         this.roomId = roomId;
         this.canEdit = canEdit;
         this.sameFactor = sameFactor;
         this.otherFactor = otherFactor;
         this.outsideFactor = outsideFactor;
+        this.videoGlobal = videoGlobal;
         this.zones = zones == null ? List.of() : zones;
     }
 
@@ -37,6 +39,7 @@ public class VoiceZonesComposer extends MessageComposer {
         this.response.appendInt(this.sameFactor);
         this.response.appendInt(this.otherFactor);
         this.response.appendInt(this.outsideFactor);
+        this.response.appendBoolean(this.videoGlobal);
         this.response.appendInt(this.zones.size());
 
         for (VoiceZone zone : this.zones) {

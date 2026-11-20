@@ -18,6 +18,7 @@ export class VoiceZonesParser implements IMessageParser
     private _sameFactor: number = 100;
     private _otherFactor: number = 10;
     private _outsideFactor: number = 35;
+    private _videoGlobal: boolean = false;
     private _zones: IZone[] = [];
 
     public flush(): boolean
@@ -27,6 +28,7 @@ export class VoiceZonesParser implements IMessageParser
         this._sameFactor = 100;
         this._otherFactor = 10;
         this._outsideFactor = 35;
+        this._videoGlobal = false;
         this._zones = [];
 
         return true;
@@ -41,6 +43,7 @@ export class VoiceZonesParser implements IMessageParser
         this._sameFactor = wrapper.readInt();
         this._otherFactor = wrapper.readInt();
         this._outsideFactor = wrapper.readInt();
+        this._videoGlobal = wrapper.readBoolean();
 
         const count = wrapper.readInt();
 
@@ -82,6 +85,11 @@ export class VoiceZonesParser implements IMessageParser
     public get outsideFactor(): number
     {
         return this._outsideFactor;
+    }
+
+    public get videoGlobal(): boolean
+    {
+        return this._videoGlobal;
     }
 
     public get zones(): IZone[]

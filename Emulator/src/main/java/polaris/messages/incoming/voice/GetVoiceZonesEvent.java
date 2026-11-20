@@ -18,6 +18,6 @@ public class GetVoiceZonesEvent extends MessageHandler {
         boolean canEdit = room.canEditVoiceZones(this.client.getUser());
         this.client.sendResponse(new VoiceZonesComposer(room.getId(), canEdit,
                 room.getVoiceSameFactor(), room.getVoiceOtherFactor(), room.getVoiceOutsideFactor(),
-                room.getVoiceZones()));
+                room.getVoiceVideoGlobal(), room.getVoiceZones()));
     }
 }
