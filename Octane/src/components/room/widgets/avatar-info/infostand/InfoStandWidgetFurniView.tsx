@@ -79,6 +79,7 @@ import { BRANDING_NUMBER_RANGES, brandingSaveMap, customVariablesSaveMap, infost
 import { BaseButton } from '../../../../../common/BaseButton';
 import { canPlaceMore, resolvePlaceMoreOfferId, requestPlaceMore } from '../../../../../hooks/catalog/buildersClubPlaceMore';
 import { useCatalogStore } from '../../../../../hooks/catalog/catalogStore';
+import { openFurniInCatalog } from '../../../../catalog/views/page/common/openFurniInCatalog';
 import { NumberInput } from '../../../../../common/NumberInput';
 import { Hint } from '../../../../../common/Tooltip';
 import { NativeTextTree } from '../../../../../common/native-text/NativeTextTree';
@@ -723,7 +724,28 @@ export const InfoStandWidgetFurniView: FC<InfoStandWidgetFurniViewProps> = (prop
                         }
                     }
 
-                    CreateLinkEvent(`catalog/open/offerId/${avatarInfo.purchaseOfferId}`);
+                    // The furnidata offerid this hotel serves doesn't match the catalogue index (editor
+                    // furnis even write `offerid:-1`), so the old `catalog/open/offerId/…` deep link opened
+                    // the catalogue on some other item. Resolve the furni by its exact class name instead.
+                    const buyRoomObject = GetRoomEngine().getRoomObject(GetRoomEngine().activeRoomId, avatarInfo.id, avatarInfo.category);
+                    const buyTypeId = buyRoomObject?.model?.getValue<number>(RoomObjectVariable.FURNITURE_TYPE_ID) || avatarInfo.spriteId;
+                    const buyFurniData = avatarInfo.isWallItem
+                        ? GetSessionDataManager().getWallItemData(buyTypeId)
+                        : GetSessionDataManager().getFloorItemData(buyTypeId);
+
+                    if (avatarInfo.purchaseOfferId > -1) {
+                        const { getNodesByOfferId } = useCatalogStore.getState();
+                        const offerNodes = getNodesByOfferId(avatarInfo.purchaseOfferId, true);
+
+                        if (offerNodes?.length) {
+                            CreateLinkEvent(`catalog/open/offerId/${avatarInfo.purchaseOfferId}`);
+
+                            return;
+                        }
+                    }
+
+                    openFurniInCatalog(buyFurniData ?? null);
+
                     return;
                 }
                 case 'move':
