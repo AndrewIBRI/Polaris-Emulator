@@ -50,7 +50,9 @@ cms.api.allowed=127.0.0.1
 ws.enabled=true
 ws.host=0.0.0.0
 ws.port=2096
-ws.whitelist=${DOMAIN}
+# Aceita conexão por qualquer domínio (configs/origem são dinâmicos por Host;
+# a autenticação real é o ticket SSO — a whitelist não é o controle de acesso).
+ws.whitelist=*
 ws.ip.header=X-Forwarded-For
 ws.ip.header.trusted=127.0.0.1
 
