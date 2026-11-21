@@ -24,3 +24,9 @@ CREATE TABLE IF NOT EXISTS `room_voice_zone_settings` (
 -- Bancos criados antes do video_global: adiciona a coluna (idempotente).
 ALTER TABLE `room_voice_zone_settings`
   ADD COLUMN IF NOT EXISTS `video_global` tinyint(1) NOT NULL DEFAULT 0;
+
+-- Escritorio virtual: desliga o kick automatico por inatividade
+-- (hotel.rooms.auto.idle=1 no banco default expulsa nao-donos em ~4min parados;
+-- ciclo roda 2x/seg: kick em IDLE_CYCLES_KICK=480 ciclos = 4 min).
+-- Salas podem reativar por conta propria (idle_autokick_enabled / idle_sleep_enabled).
+UPDATE `emulator_settings` SET `value` = '0' WHERE `key` = 'hotel.rooms.auto.idle';
