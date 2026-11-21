@@ -30,3 +30,8 @@ ALTER TABLE `room_voice_zone_settings`
 -- ciclo roda 2x/seg: kick em IDLE_CYCLES_KICK=480 ciclos = 4 min).
 -- Salas podem reativar por conta propria (idle_autokick_enabled / idle_sleep_enabled).
 UPDATE `emulator_settings` SET `value` = '0' WHERE `key` = 'hotel.rooms.auto.idle';
+
+-- Moedas iniciais de novas contas (escritorio virtual): credits/duckets/diamonds.
+UPDATE `emulator_settings` SET `value` = '5000' WHERE `key` = 'new_user_credits';
+UPDATE `emulator_settings` SET `value` = '500'  WHERE `key` = 'new_user_duckets';
+UPDATE `emulator_settings` SET `value` = '50'   WHERE `key` = 'new_user_diamonds';
