@@ -53,6 +53,7 @@ COPY assets/ /opt/assets/
 # as /var/www/gamedata/badgeparts (migration base_database), which overrides config.ini
 COPY Assets/badgeparts/ /opt/badgeparts/
 COPY Assets/badgeparts/ /var/www/gamedata/badgeparts/
+COPY Assets/badgeparts/ /opt/assets/gamedata/badgeparts/
 COPY docker/templates/ /opt/templates/
 
 COPY docker/nginx.conf /etc/nginx/nginx.conf

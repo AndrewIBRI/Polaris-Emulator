@@ -548,7 +548,7 @@
     "badge.asset.url": "${image.library.url}album1584/%badgename%.gif",
     "badge.asset.group.url": "http://localhost/habbo-imaging/badge/%badgedata%",
     "badge.asset.group.external.url": "",
-    "badge.asset.grouparts.url": "http://localhost/gamedata/badgeparts/badgepart_%part%.png",
+    "badge.asset.grouparts.url": "https://{{DOMAIN}}/gameassets/gamedata/badgeparts/badgepart_%part%.png",
     "group.badge.url": "https://{{DOMAIN}}/imager/badges/%imagerdata%.png",
     "user.badges.group.slot.enabled": true,
     "badges.custom.list.endpoint": "${api.url}/api/badges/custom",
